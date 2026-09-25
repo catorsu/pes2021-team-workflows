@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pes2021-team-workflows"
+version = "0.1.0"
+readme = "README.md"
+description = "Configurable headless PES 2021 match plans and player attribute modeling"
+requires-python = ">=3.11"
+dependencies = ["pandas>=2.0"]
+classifiers = ["Operating System :: POSIX :: Linux"]
+
+[project.scripts]
+pes-match-plan = "pes_workflows.generate_match_plan:main"
+pes-match-plans = "pes_workflows.batch_generate_match_plans:main"
+pes-player-attributes = "pes_workflows.batch_design_player_attributes:main"
+
+[tool.setuptools.packages.find]
+include = ["pes_workflows*"]
+
+[tool.setuptools.package-data]
+pes_workflows = ["prompts/**/*.md"]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.16", "mypy>=1.15"]
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+disallow_untyped_defs = true

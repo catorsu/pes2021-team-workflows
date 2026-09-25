@@ -1,0 +1,130 @@
+# setup_env.py copies this template to pes-workflows.toml only when it is missing.
+# Existing local settings are preserved; merge template updates manually.
+# Precedence: built-in defaults < [defaults] < workflow section < explicit CLI flags.
+# Shared keys below may be overridden in any workflow section; Global Auto Options
+# apply only to [match_plan] and [match_plans].
+# CSV paths must be absolute (or start with ~); names and directories are customizable.
+# Examples below access C:\PES2021 from WSL. Change /mnt/c to /mnt/d for D:, etc.
+# Native Windows paths are translated with wslpath inside WSL, respecting custom mounts.
+# For backslashes, use TOML literal strings: players_csv = 'C:\PES2021\Players.csv'.
+# Paths with spaces are supported; quote them when passing CLI arguments.
+# Other configured paths are relative to this file. No CSV path has a default.
+[defaults]
+# Player identities and abilities; required by every workflow, updated by attributes.
+players_csv = "/mnt/c/PES2021/Players.csv"
+# Club/national memberships; required by every workflow.
+teams_players_csv = "/mnt/c/PES2021/Teams-Players.csv"
+# Squad player slots; required by match plans, unused by player attributes.
+rosters_csv = "/mnt/c/PES2021/Rosters.csv"
+# Tactical editor data; required and updated by match plans, unused by attributes.
+formations_csv = "/mnt/c/PES2021/Formations.csv"
+# Cooldown seconds after each successful model request; finite number >= 0; default 5.0.
+delay = 5.0
+# Request the chosen CLI's fast mode; true/false; default false. Does not change effort.
+# Claude: supported Opus models only (not Fable); Codex: fast service tier.
+fast = false
+# Model ID: any nonempty ID supported by the selected CLI/account (not a fixed enum).
+# Claude default: claude-opus-5-5; alternative: claude-fable-5-1.
+# Codex default: gpt-6-astra; alternative: gpt-6-sol.
+# Prefer model overrides inside workflow sections when mixing engines.
+# model = "claude-opus-5-5"
+# Reasoning effort: low | medium | high | xhigh | max; default high for both engines.
+# A chosen model must support the requested level.
+effort = "high"
+
+# Global Auto Options: integers only (not booleans, floats, or quoted numbers).
+# Auto Substitutions (AutoSubstitutions): automatic substitution timing.
+# 0 = Off, 1 = Very Late, 2 = Flexible, 3 = Very Early; omitted default 2.
+auto_substitutions = 2
+# Auto-Adjust Att/Def (AutoChangeAttDef): automatic attack/defence level adjustment.
+# 0 = Off (manual adjustment), 1 = On (automatic adjustment); omitted default 0.
+auto_change_att_def = 0
+# Auto Switch Preset Tactics (SwitchTactics): automatic switching between presets.
+# 0 = Off, 1 = On. Either value is allowed with either preset_mode.
+# Omitted fallback: 0 in single mode, 1 in multi mode (legacy defaults).
+# **Note:** In PES2021Editor-ejogc327, **Switch Preset Tactics** is mislabeled; it controls the in-game **Auto Switch Preset Tactics** setting. Set it to match the desired in-game auto-switch state.
+# auto_switch_preset_tactics = 0
+
+[match_plan]
+# Optional Global Auto Options overrides; ranges/meanings are documented above.
+# auto_substitutions = 2
+# auto_change_att_def = 0
+# auto_switch_preset_tactics = 0
+# CLI transport: claude-code | codex; default claude-code.
+engine = "claude-code"
+# Presets: single (Main, 3 requests) | multi (Main/Defensive/Custom, 5 requests).
+# Required in TOML or --preset-mode; the CLI has no implicit default.
+preset_mode = "single"
+# Selection: single | multiple | all. This command requires single and exactly one team.
+# If omitted, scope is inferred from teams: one -> single, 2+ -> multiple, none -> all.
+scope = "single"
+# List of exact team names or ID strings; default []. Replace this example ID.
+teams = ["77"]
+# Generate and validate without writing Formations.csv; true/false; default false.
+dry_run = false
+# Regenerate a team even if marked complete; true/false; default false.
+force = false
+# Artifact/log/completion directory; CLI fallback ./outputs/match_plan in cwd.
+# Own registry: <output_dir>/completed_teams_match_plan_<preset_mode>.txt.
+# Changing output_dir relocates both artifacts and this workflow's completion state.
+output_dir = "./outputs/match_plan"
+# Optional read-only attribute eligibility filter; default no filter.
+# This is not the match-plan completion destination; it never records match-plan success.
+# If used, point it to the registry inside the chosen player_attributes.output_dir.
+# attributes_completed_teams = "./outputs/player_attributes/completed_teams_player_attributes.txt"
+# Optional model override, e.g. claude-fable-5-1 (claude-code) or gpt-6-sol (codex).
+# model = "claude-fable-5-1"
+
+[match_plans]
+# Optional Global Auto Options overrides; ranges/meanings are documented above.
+# auto_substitutions = 2
+# auto_change_att_def = 0
+# auto_switch_preset_tactics = 0
+# CLI transport: claude-code | codex; default claude-code.
+engine = "claude-code"
+# Presets: single (3 requests) | multi (5 requests); required, no implicit CLI default.
+preset_mode = "single"
+# Selection: single (one team) | multiple (2+ teams) | all (empty teams).
+# Omitted scope is inferred from teams; an empty/omitted list selects all.
+scope = "all"
+# Exact names/ID strings; default []. Duplicate matches run once, in selection order.
+teams = []
+# To select several teams: scope = "multiple", teams = ["77", "My Club"]
+# Generate and validate without writing Formations.csv; true/false; default false.
+dry_run = false
+# Regenerate completed teams; true/false; default false.
+force = false
+# Only validate eligibility offline, without model calls; true/false; default false.
+check_only = false
+# Artifact/log/completion directory; CLI fallback ./outputs/match_plans in cwd.
+# Own registry: <output_dir>/completed_teams_match_plans_<preset_mode>.txt.
+# Independent of the single-team match_plan and player_attributes registries.
+output_dir = "./outputs/match_plans"
+# Optional read-only attribute eligibility filter; default no filter.
+# If used, point it to the registry inside the chosen player_attributes.output_dir.
+# Batch match-plan success is written only to this workflow's own registry above.
+# attributes_completed_teams = "./outputs/player_attributes/completed_teams_player_attributes.txt"
+
+[player_attributes]
+# Uses Claude Code only; engine, preset_mode, dry_run and force are not accepted here.
+# Selection: single (one team) | multiple (2+ teams) | all (empty teams).
+# Omitted scope is inferred from teams; an empty/omitted list selects all.
+scope = "all"
+# Exact team names/ID strings; default []; selected teams run in numeric ID order.
+teams = []
+# Only validate offline and write preflight.json; true/false; default false.
+check_only = false
+# Maximum Claude CLI turns per request, including web search/fetch and the final answer.
+# Positive integer >= 1; default 80; applies separately to both stages, repairs and retries.
+# This is a ceiling, not a target or a batch-wide budget. CLI override: --max-turns N.
+max_turns = 80
+# Audit/report/checkpoint directory; default ./outputs/player_attributes in cwd.
+# Use a separate directory for each team selection.
+# Own registry: <output_dir>/completed_teams_player_attributes.txt.
+# Only successful player attribute modeling is recorded here, independently of match plans.
+output_dir = "./outputs/player_attributes"
+# Maximum pending teams attempted per invocation; positive integer >= 1; default unlimited.
+# max_teams = 10
+# Shared model/effort/delay/fast and CSV path overrides use the rules in [defaults].
+# Attributes require only players_csv and teams_players_csv; default model claude-opus-5-5.
+# model = "claude-fable-5-1"

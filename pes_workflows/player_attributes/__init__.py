@@ -1,0 +1,1 @@
+"""Player attributes implementation."""
