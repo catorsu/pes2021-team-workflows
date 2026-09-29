@@ -6,8 +6,9 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from pes_workflows.domain.formation_grid import GRID_ROW_MAX, GRID_ROW_MIN
+
 from .errors import SemanticGridError
-from .geometry import GK_ANCHOR_LABEL, N_ROWS
 from .mappings import (
     _ADVANCED_CANONICAL_NAMES,
     _ADVANCED_SLOT_SPECS,
@@ -183,23 +184,17 @@ def _strict_validate_semantic_plan_shape(config: dict[str, Any]) -> None:
             for slot, item in enumerate(state):
                 row_where = f"{state_where}[{slot}]"
                 _strict_keys(item, ("Slot", "Position", "Grid Assignment"), row_where)
-                if isinstance(item["Slot"], bool) or item["Slot"] != slot:
+                if type(item["Slot"]) is not int or item["Slot"] != slot:
                     raise SemanticGridError(
                         f"{row_where}.Slot must be the integer {slot}."
                     )
                 if item["Position"] not in POSITION_NAME_TO_CODE:
                     raise SemanticGridError(f"{row_where}.Position is not canonical.")
                 grid = item["Grid Assignment"]
-                if slot == 0:
-                    if item["Position"] != "GK" or grid != GK_ANCHOR_LABEL:
-                        raise SemanticGridError(
-                            f"{row_where} must use Position 'GK' and Grid Assignment "
-                            f"'{GK_ANCHOR_LABEL}'."
-                        )
-                elif not isinstance(grid, str) or not _GRID_RE.fullmatch(grid):
+                if not isinstance(grid, str) or not _GRID_RE.fullmatch(grid):
                     raise SemanticGridError(
                         f"{row_where}.Grid Assignment must use the canonical "
-                        f"Row 1-{N_ROWS} and 7-lane grammar."
+                        f"Row {GRID_ROW_MIN}-{GRID_ROW_MAX} and 7-lane grammar."
                     )
 
 

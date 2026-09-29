@@ -190,7 +190,14 @@ class StandaloneTests(unittest.TestCase):
             "Substitutes": [{"Player ID": "12"}],
         }
         bench = validate_bench_decision(bench_raw, xi, identity)
-        main = validate_preset_plan(preset_raw("Main"), "Main", xi)
+        main_raw = preset_raw("Main")
+        for state, row, lane in (
+            ("Normal", 0, "L_Wing"),
+            ("With Ball", 5, "L_Half"),
+            ("Without Ball", 9, "R_Wing"),
+        ):
+            main_raw["States"][state][0]["Grid"] = {"Row": row, "Lane": lane}
+        main = validate_preset_plan(main_raw, "Main", xi)
         plan = assemble_semantic_game_plan(
             identity, xi, {"Main": main}, bench, preset_mode="single"
         )
@@ -246,7 +253,7 @@ class StandaloneTests(unittest.TestCase):
             )
             write_csv(formations, [formation])
             before = formations.read_bytes()
-            replies = [strategy_raw(), preset_raw("Main"), bench_raw]
+            replies = [strategy_raw(), main_raw, bench_raw]
             for dry_run in (True, False):
                 processes = []
                 for reply in replies:
@@ -318,6 +325,15 @@ class StandaloneTests(unittest.TestCase):
                     self.assertEqual(row["AutoSubstitutions"], "3")
                     self.assertEqual(row["AutoChangeAttDef"], "1")
                     self.assertEqual(row["SwitchTactics"], "1")
+                    for tactic in ("S1", "S2", "S3"):
+                        for fluid, x, y in (
+                            ("F1", "3", "11"),
+                            ("F2", "26", "29"),
+                            ("F3", "46", "93"),
+                        ):
+                            self.assertEqual(row[f"Position1{fluid}{tactic}"], "0")
+                            self.assertEqual(row[f"LocationX1{fluid}{tactic}"], x)
+                            self.assertEqual(row[f"LocationY1{fluid}{tactic}"], y)
                     self.assertEqual(registry.read_text(), "77\tCustom Squad\n")
             output = data
             self.assertFalse(list(output.rglob("Full_Game_Plan*")))
@@ -344,20 +360,28 @@ class StandaloneTests(unittest.TestCase):
                         "auto_switch_preset_tactics": 1,
                     },
                 )
-                self.assertTrue(
+                saved_plan = json.loads(
                     (
                         manifest_path.parent
                         / manifest["artifacts"]["semantic_game_plan"]
-                    ).is_file()
+                    ).read_text()
                 )
-            # The direct injection API must preserve explicit settings too.
+                self.assertEqual(saved_plan, plan)
+            # Reinject the saved artifact, including independent multi-preset anchors.
             for mode, switch in (("single", 1), ("multi", 0)):
                 with self.subTest(mode=mode):
+                    if mode == "multi":
+                        saved_plan["Presets"]["Defensive"]["States"]["Normal"][0][
+                            "Grid Assignment"
+                        ] = "Row 9 - R_Half"
+                        saved_plan["Presets"]["Custom"]["States"]["Normal"][0][
+                            "Grid Assignment"
+                        ] = "Row 5 - R_Wing"
                     self.assertTrue(
                         formation_injection.process_formation_data(
                             roster_path,
                             formations,
-                            plan,
+                            saved_plan,
                             players_csv=players,
                             strict=True,
                             preset_mode=mode,
@@ -372,6 +396,19 @@ class StandaloneTests(unittest.TestCase):
                     self.assertEqual(row["AutoSubstitutions"], "0")
                     self.assertEqual(row["AutoChangeAttDef"], "1")
                     self.assertEqual(row["SwitchTactics"], str(switch))
+                    expected = (
+                        (("3", "11"), ("3", "11"), ("3", "11"))
+                        if mode == "single"
+                        else (("3", "11"), ("46", "75"), ("26", "93"))
+                    )
+                    for tactic, (x, y) in zip(("S1", "S2", "S3"), expected):
+                        self.assertEqual(row[f"LocationX1F1{tactic}"], x)
+                        self.assertEqual(row[f"LocationY1F1{tactic}"], y)
+                        self.assertEqual(row[f"Position1F1{tactic}"], "0")
+                        self.assertEqual(row[f"LocationX1F2{tactic}"], "26")
+                        self.assertEqual(row[f"LocationY1F2{tactic}"], "29")
+                        self.assertEqual(row[f"LocationX1F3{tactic}"], "46")
+                        self.assertEqual(row[f"LocationY1F3{tactic}"], "93")
             before_invalid = formations.read_bytes()
             with mock.patch.object(formation_injection.pd, "read_csv") as read_csv:
                 self.assertFalse(
@@ -381,6 +418,22 @@ class StandaloneTests(unittest.TestCase):
                         plan,
                         players_csv=players,
                         auto_substitutions=True,
+                        report=lambda _: None,
+                    )
+                )
+            read_csv.assert_not_called()
+            self.assertEqual(formations.read_bytes(), before_invalid)
+            saved_plan["Presets"]["Main"]["States"]["With Ball"][1][
+                "Grid Assignment"
+            ] = "Row 5 - C_Center"
+            with mock.patch.object(formation_injection.pd, "read_csv") as read_csv:
+                self.assertFalse(
+                    formation_injection.process_formation_data(
+                        roster_path,
+                        formations,
+                        saved_plan,
+                        players_csv=players,
+                        strict=True,
                         report=lambda _: None,
                     )
                 )

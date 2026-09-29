@@ -6,6 +6,8 @@ import math
 from collections.abc import Sequence
 from typing import Any
 
+from pes_workflows.domain.formation_grid import GRID_LANES, GRID_ROW_MAX, GRID_ROW_MIN
+
 from .errors import SemanticGridError
 
 PITCH_LENGTH_M = 105
@@ -17,9 +19,11 @@ Y_LEGAL_MIN, Y_LEGAL_MAX = 7.0, 61.0
 EDITOR_X_MIN, EDITOR_X_MAX = 3, 46
 EDITOR_Y_MIN, EDITOR_Y_MAX = 10, 94
 
-N_ROWS = 9
-
+# Deterministic representatives inside the depth bands in GAME_PLAN_RULES IV.
+# Row 0 retains the editor-safe 6 m depth; it has the same seven Lanes as every
+# other row and is no longer a special goalkeeper coordinate.
 ROW_X_M = {
+    0: 6.0,
     1: 12.5,
     2: 22.5,
     3: 32.5,
@@ -31,15 +35,7 @@ ROW_X_M = {
     9: 92.5,
 }
 
-LANE_ORDER = [
-    "L_Wing",
-    "L_Half",
-    "L_Center",
-    "C_Center",
-    "R_Center",
-    "R_Half",
-    "R_Wing",
-]
+LANE_ORDER = list(GRID_LANES)
 
 LANE_Y_M = {
     "L_Wing": 7.0,
@@ -51,23 +47,24 @@ LANE_Y_M = {
     "R_Wing": 61.0,
 }
 
-GK_ANCHOR_LABEL = "GK_Anchor"
-GK_ANCHOR_XY_M = (6.0, 34.0)
 MIN_LATERAL_GAP_M = 3.0
 MIN_EDITOR_Y_GAP = 2
 
 
 def _validate_static_grid_definition() -> None:
-    expected_rows = [12.5, 22.5, 32.5, 42.5, 52.5, 62.5, 72.5, 82.5, 92.5]
-    actual_rows = [ROW_X_M.get(index) for index in range(1, N_ROWS + 1)]
+    expected_rows = [6.0, 12.5, 22.5, 32.5, 42.5, 52.5, 62.5, 72.5, 82.5, 92.5]
+    actual_rows = [
+        ROW_X_M.get(index) for index in range(GRID_ROW_MIN, GRID_ROW_MAX + 1)
+    ]
     if actual_rows != expected_rows:
         raise SemanticGridError(
             f"Internal static-grid error: row centres must be {expected_rows}, "
             f"got {actual_rows}."
         )
-    if list(ROW_X_M) != list(range(1, N_ROWS + 1)):
+    if list(ROW_X_M) != list(range(GRID_ROW_MIN, GRID_ROW_MAX + 1)):
         raise SemanticGridError(
-            f"Internal static-grid error: row keys must be 1 through {N_ROWS}."
+            f"Internal static-grid error: row keys must be {GRID_ROW_MIN} "
+            f"through {GRID_ROW_MAX}."
         )
 
     if list(LANE_Y_M) != LANE_ORDER:
@@ -83,21 +80,15 @@ def _validate_static_grid_definition() -> None:
             f"Internal static-grid error: lane centres must be {expected_lanes}, "
             f"got {lane_centres}."
         )
-    if GK_ANCHOR_XY_M != (6.0, 34.0):
-        raise SemanticGridError(
-            "Internal static-grid error: GK_Anchor must be (6.0, 34.0), "
-            f"got {GK_ANCHOR_XY_M}."
-        )
-
     if any(
         abs(ROW_X_M[index + 1] - ROW_X_M[index] - 10.0) > 1e-9
-        for index in range(1, N_ROWS)
+        for index in range(1, GRID_ROW_MAX)
     ):
         raise SemanticGridError(
             "Internal static-grid error: adjacent outfield rows must be 10.0 m apart."
         )
     if abs(ROW_X_M[5] - PITCH_LENGTH_M / 2) > 1e-9 or any(
-        abs(ROW_X_M[row] + ROW_X_M[N_ROWS + 1 - row] - PITCH_LENGTH_M) > 1e-9
+        abs(ROW_X_M[row] + ROW_X_M[10 - row] - PITCH_LENGTH_M) > 1e-9
         for row in range(1, 5)
     ):
         raise SemanticGridError(
@@ -127,10 +118,9 @@ def _validate_static_grid_definition() -> None:
         raise SemanticGridError(
             "Internal static-grid error: adjacent lane anchors overlap in editor space."
         )
-    _convert_to_editor(*GK_ANCHOR_XY_M, GK_ANCHOR_LABEL)
 
 
-def _nominal_outfield_xy(row: int, lane: str) -> tuple[float, float]:
+def _nominal_grid_xy(row: int, lane: str) -> tuple[float, float]:
     return float(ROW_X_M[row]), float(LANE_Y_M[lane])
 
 
@@ -180,8 +170,7 @@ def _spread_chain(
 def _resolve_row_collisions(entries: list[dict[str, Any]], where: str) -> None:
     by_row: dict[int, list[dict[str, Any]]] = {}
     for entry in entries:
-        if entry["kind"] == "grid":
-            by_row.setdefault(entry["row"], []).append(entry)
+        by_row.setdefault(entry["row"], []).append(entry)
 
     for row in sorted(by_row):
         members = sorted(by_row[row], key=lambda entry: (entry["y0"], entry["slot"]))
@@ -197,7 +186,7 @@ def _resolve_row_collisions(entries: list[dict[str, Any]], where: str) -> None:
         )
         if resolved_y is None:
             raise SemanticGridError(
-                f"{where}: Row {row} cannot fit {len(members)} outfielders "
+                f"{where}: Row {row} cannot fit {len(members)} players "
                 "inside the legal width."
             )
 
@@ -207,14 +196,9 @@ def _resolve_row_collisions(entries: list[dict[str, Any]], where: str) -> None:
 
 def _validate_state_invariants(entries: list[dict[str, Any]], where: str) -> None:
     goalkeepers = [entry for entry in entries if entry["kind"] == "gk"]
-    if len(goalkeepers) != 1:
+    if len(goalkeepers) != 1 or goalkeepers[0]["slot"] != 0:
         raise SemanticGridError(
-            f"{where}: internal error - expected one GK_Anchor, got {len(goalkeepers)}."
-        )
-    goalkeeper = goalkeepers[0]
-    if (goalkeeper["x"], goalkeeper["y"]) != GK_ANCHOR_XY_M:
-        raise SemanticGridError(
-            f"{where}: internal error - GK_Anchor moved from {GK_ANCHOR_XY_M}."
+            f"{where}: internal error - expected the sole goalkeeper at Slot 0."
         )
 
     physical_rows: dict[int, list[tuple[float, int]]] = {}
@@ -229,8 +213,6 @@ def _validate_state_invariants(entries: list[dict[str, Any]], where: str) -> Non
                 f"{where} Slot {entry['slot']}: resolved Y={entry['y']} m escapes "
                 f"[{Y_LEGAL_MIN}, {Y_LEGAL_MAX}] m."
             )
-        if entry["kind"] == "gk":
-            continue
         expected_x = float(ROW_X_M[entry["row"]])
         if abs(entry["x"] - expected_x) > 1e-9:
             raise SemanticGridError(

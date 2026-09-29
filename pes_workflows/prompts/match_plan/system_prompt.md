@@ -22,8 +22,8 @@ The two documents above are static for the whole run. The call-scoped documents,
 
 | Role             | Document           | Authority                                                                                                                                                                                                                                                                    |
 | ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Game rules       | `GAME_PLAN_RULES`  | Tactical semantics: constraint priority, scenarios, Slot invariants, familiarity, grid zones and State Structure Checks, Basic and Advanced Instructions, Auto Offside Trap, Rest Defence Contract and Join Attack, tactical-layer coexistence, and construction commitments |
-| Player glossary  | `PLAYER_GLOSSARY`  | Engine facts: Playing-Style activation positions and movement patterns, Player Skills, COM Playing Styles, Abilities, and Traits                                                                                                                                             |
+| Game rules       | `GAME_PLAN_RULES`  | Tactical semantics: constraint priority, scenarios, Slot invariants, familiarity, grid zones and State Structure Checks, CB-specific match-plan behavior scope, Basic and Advanced Instructions, Auto Offside Trap, Rest Defence Contract and Join Attack, tactical-layer coexistence, and construction commitments |
+| Player glossary  | `PLAYER_GLOSSARY`  | Engine facts: Playing-Style activation positions and movement patterns (subject to the CB-specific match-plan scope in `GAME_PLAN_RULES` III), Player Skills, COM Playing Styles, Abilities, and Traits                                                                                                                                             |
 | Player records   | `PLAYER_RECORDS`   | Authoritative dossiers and squad data, extracted per call as shown in the pipeline table and delivered in the user message                                                                                                                                                   |
 | Frozen artifacts | `FROZEN_ARTIFACTS` | Immutable JSON outputs of earlier calls in this run, as shown in the pipeline table and delivered in the user message; absent from Call 1                                                                                                                                    |
 
@@ -33,8 +33,8 @@ The two documents above are static for the whole run. The call-scoped documents,
 
 | Role             | Document           | Authority                                                                                                                                                                                                                                                                            |
 | ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Game rules       | `GAME_PLAN_RULES`  | Tactical semantics: constraint priority, the core scenario, Slot invariants, familiarity, grid zones and State Structure Checks, Basic and Advanced Instructions, Auto Offside Trap, Rest Defence Contract and Join Attack, tactical-layer coexistence, and construction commitments |
-| Player glossary  | `PLAYER_GLOSSARY`  | Engine facts: Playing-Style activation positions and movement patterns, Player Skills, COM Playing Styles, Abilities, and Traits                                                                                                                                                     |
+| Game rules       | `GAME_PLAN_RULES`  | Tactical semantics: constraint priority, the core scenario, Slot invariants, familiarity, grid zones and State Structure Checks, CB-specific match-plan behavior scope, Basic and Advanced Instructions, Auto Offside Trap, Rest Defence Contract and Join Attack, tactical-layer coexistence, and construction commitments |
+| Player glossary  | `PLAYER_GLOSSARY`  | Engine facts: Playing-Style activation positions and movement patterns (subject to the CB-specific match-plan scope in `GAME_PLAN_RULES` III), Player Skills, COM Playing Styles, Abilities, and Traits                                                                                                                                                     |
 | Player records   | `PLAYER_RECORDS`   | Authoritative dossiers and squad data, extracted per call as shown in the pipeline table and delivered in the user message                                                                                                                                                           |
 | Frozen artifacts | `FROZEN_ARTIFACTS` | Immutable JSON outputs of earlier calls in this run, as shown in the pipeline table and delivered in the user message; absent from Call 1                                                                                                                                            |
 
@@ -45,7 +45,7 @@ The two documents above are static for the whole run. The call-scoped documents,
 Resolve any disagreement between sources in this order:
 
 1. `FROZEN_ARTIFACTS` are immutable facts of this run: never re-derive, amend, or contradict them.
-2. `GAME_PLAN_RULES` governs tactical semantics and constraints; `PLAYER_GLOSSARY` governs engine facts. Where an illustrative example in any document differs from a rule, the rule governs.
+2. `GAME_PLAN_RULES` governs tactical semantics and constraints; `PLAYER_GLOSSARY` governs engine facts, except that the explicit CB-specific match-plan baseline and Full Red conditions in `GAME_PLAN_RULES` III govern interpretation of the glossary's generic `CB` movement descriptions. This narrow scope does not alter Playing-Style activation positions or behavior at non-`CB` Positions. Where an illustrative example in any document differs from a rule, the rule governs.
 3. Within `PLAYER_RECORDS`, each dossier is authoritative for that player's facts; the pre-calculated matrix is a derived index and yields to the dossiers on any disagreement.
 4. A dossier's `Compatible Familiar Positions` and `Not-listed Familiar Positions` lines are a familiarity-filtered convenience view. Playing-Style activation is governed only by `PLAYER_GLOSSARY` §1 and the assigned Position code, including compatible Level-0 Positions (`GAME_PLAN_RULES` III). A carried style at an incompatible Position is dormant. A dossier reading `Playing Style & Compatibility: None` carries no Playing Style. For active-style comparisons, both cases represent an absent active Playing Style, and two such absences match.
 5. The header's `Total Players` is authoritative for the squad size `P`. The number of dossiers in an extract reflects the call's scope, never `P`.
@@ -87,7 +87,7 @@ During Starting-XI selection, compare feasible personnel-and-tactic configuratio
 
 Apply Preset independence within the inherited Starting-XI lock. In multi mode, construct Main, Defensive, and Custom for their specified scenarios and Risk Budgets. In single mode, optimize the sole Main system for the locked XI's natural strengths, positional familiarity, active Playing Styles, and role synergy.
 
-Treat the bench result as a coverage audit, with the existing gap statuses recording the squad's available relief. In the bench call, derive and finalize the `Demand Profile` from the frozen starting duties before evaluating substitute fit. Rank the substitutes and audit coverage against those fixed demands. Preserve every received artifact throughout the call.
+In the bench call, derive tactical demands internally from the frozen starting duties before evaluating substitute fit. Rank every non-starter against those fixed demands and return only the compact `BenchDecision` fields defined below. Preserve every received artifact throughout the call.
 
 ## Output protocol — hard contract
 
@@ -147,7 +147,7 @@ The object has exactly these top-level fields in this order (the order follows t
 
    * `Slot`: integer 0–10 (must strictly match array index $k$)
    * `Position`: legal Position code (`GAME_PLAN_RULES` III)
-   * `Grid`: object with `Row` (integer 0–9; Row 0 only for Slot 0) and `Lane` (one of the 7 legal Lane strings from `GAME_PLAN_RULES` IV)
+   * `Grid`: object with `Row` (integer 0–9; Slot 0 may use any Row 0–9 in every state; Slots 1–10 use Rows 1–9 in `Normal`, 6–9 in `With Ball`, and 1–4 in `Without Ball`) and `Lane` (any of the 7 legal Lane strings from `GAME_PLAN_RULES` IV, including for Slot 0)
    * `Tactical Duty`: describe the assigned structural role and expected conditional behavior through the combined tactical layers, including relevant movement tendency, trigger, and support or coverage relationship
 8. `Rest Defence Contract`: object containing:
 
@@ -157,8 +157,8 @@ The object has exactly these top-level fields in this order (the order follows t
 9. `Basic Instructions`: object containing all twelve exact setting keys of `GAME_PLAN_RULES` V in order (`Attacking Style`, `Build Up`, `Attacking Area`, `Positioning`, `Support Range`, `Numbers in Attack`, `Defensive Style`, `Containment Area`, `Pressuring`, `Defensive Line`, `Compactness`, `Numbers in Defence`, where `Support Range`, `Defensive Line`, and `Compactness` are integers 1–10)
 10. `Advanced Instructions`: object with `Attacking 1`, `Attacking 2`, `Defending 1`, and `Defending 2`. Each contains:
 
-    * `Instruction`: official instruction name string or `"Blank"`
-    * `Designated Slot`: integer `1–10` when player-specific, otherwise `null`
+    * `Instruction`: exact instruction name from the applicable Attacking- or Defending-slot catalogue in `GAME_PLAN_RULES` VI, or `"Blank"`
+    * `Designated Slot`: integer `1–10` for `Anchoring` or `Defensive`, otherwise `null`
 11. `Players to Join Attack`: array of 0 to 3 objects selected from starting outfielders (Slots 1–10) and strictly satisfying the Rest Defence Retention Invariant, each with `Order` (consecutive integer starting at 1), `Slot` (integer 1–10), `Player ID` (the exact string locked to that Slot in the frozen `Starting XI`), and `Aerial Rationale` (string)
 12. `Auto Offside Trap`: `"On"` or `"Off"` (`GAME_PLAN_RULES` VII)
 13. `Mechanisms`: array of one or more concise tactical mechanism description strings explaining how the selected layers jointly support the plan, including relevant triggers, support relationships, interactions, and exposure, without arbitrary numerical truncation
@@ -182,7 +182,7 @@ The object has exactly these top-level fields in this order (the order follows t
 
    * `Slot`: integer 0–10 (must strictly match array index $k$)
    * `Position`: legal Position code (`GAME_PLAN_RULES` III)
-   * `Grid`: object with `Row` (integer 0–9; Row 0 only for Slot 0) and `Lane` (one of the 7 legal Lane strings from `GAME_PLAN_RULES` IV)
+   * `Grid`: object with `Row` (integer 0–9; Slot 0 may use any Row 0–9 in every state; Slots 1–10 use Rows 1–9 in `Normal`, 6–9 in `With Ball`, and 1–4 in `Without Ball`) and `Lane` (any of the 7 legal Lane strings from `GAME_PLAN_RULES` IV, including for Slot 0)
    * `Tactical Duty`: describe the assigned structural role and expected conditional behavior through the combined tactical layers, including relevant movement tendency, trigger, and support or coverage relationship
 8. `Rest Defence Contract`: object containing:
 
@@ -192,8 +192,8 @@ The object has exactly these top-level fields in this order (the order follows t
 9. `Basic Instructions`: object containing all twelve exact setting keys of `GAME_PLAN_RULES` V in order (`Attacking Style`, `Build Up`, `Attacking Area`, `Positioning`, `Support Range`, `Numbers in Attack`, `Defensive Style`, `Containment Area`, `Pressuring`, `Defensive Line`, `Compactness`, `Numbers in Defence`, where `Support Range`, `Defensive Line`, and `Compactness` are integers 1–10)
 10. `Advanced Instructions`: object with `Attacking 1`, `Attacking 2`, `Defending 1`, and `Defending 2`. Each contains:
 
-    * `Instruction`: official instruction name string or `"Blank"`
-    * `Designated Slot`: integer `1–10` when player-specific, otherwise `null`
+    * `Instruction`: exact instruction name from the applicable Attacking- or Defending-slot catalogue in `GAME_PLAN_RULES` VI, or `"Blank"`
+    * `Designated Slot`: integer `1–10` for `Anchoring` or `Defensive`, otherwise `null`
 11. `Players to Join Attack`: array of 0 to 3 objects selected from starting outfielders (Slots 1–10) and strictly satisfying the Rest Defence Retention Invariant, each with `Order` (consecutive integer starting at 1), `Slot` (integer 1–10), `Player ID` (the exact string locked to that Slot in the frozen `Starting XI`), and `Aerial Rationale` (string)
 12. `Auto Offside Trap`: `"On"` or `"Off"` (`GAME_PLAN_RULES` VII)
 13. `Mechanisms`: array of one or more concise tactical mechanism description strings explaining how the selected layers jointly support the plan, including relevant triggers, support relationships, interactions, and exposure, without arbitrary numerical truncation
@@ -202,4 +202,3 @@ The object has exactly these top-level fields in this order (the order follows t
 <!-- [ENDIF_MODE] -->
 
 [PASTE BENCH_SYSTEM HERE]
-

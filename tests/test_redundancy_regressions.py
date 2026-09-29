@@ -20,6 +20,7 @@ from pes_workflows import batch_design_player_attributes as batch
 from pes_workflows import generate_match_plan as single
 from pes_workflows.application.artifact_generation import request_artifact
 from pes_workflows.compiler import injection
+from pes_workflows.compiler.compile import compile_semantic_game_plan
 from pes_workflows.config import Config
 from pes_workflows.contracts.errors import ArtifactContractError, ArtifactDomainError
 from pes_workflows.contracts.preset import validate_preset_plan
@@ -48,6 +49,138 @@ from tests.match_fixtures import preset_raw, source_identity, strategy_raw
 
 
 class ConsolidatedInfrastructureTests(unittest.TestCase):
+    def test_starting_xi_uses_familiarity_and_exact_ordered_identities(self) -> None:
+        for level in ("L1", "L2"):
+            source = source_identity()
+            source["registered_positions"]["1"] = "CB"
+            source["familiarity"]["1"] = {"L1": set(), "L2": set()}
+            source["familiarity"]["1"][level] = {"GK"}
+            with self.subTest(level=level):
+                lock = validate_starting_xi_lock(strategy_raw(), source)
+                self.assertEqual(lock.to_model_dict(), strategy_raw())
+        source = source_identity()
+        source["familiarity"]["1"] = {"L1": set(), "L2": set()}
+        with self.assertRaisesRegex(ArtifactDomainError, "Level 1 or Level 2"):
+            validate_starting_xi_lock(strategy_raw(), source)
+
+        for field, value in (
+            ("Slot", True),
+            ("Slot", 1.0),
+            ("Slot", 2),
+            ("Player ID", "1"),
+            ("Player ID", "02"),
+            ("Player ID", 2),
+            ("Player ID", " 2"),
+            ("Player ID", "12"),
+            ("Position", "CB"),
+        ):
+            with self.subTest(field=field, value=value):
+                raw = strategy_raw()
+                raw["Starting XI"][1][field] = value
+                with self.assertRaises(ArtifactContractError):
+                    validate_starting_xi_lock(raw, source_identity())
+        for mutate in (
+            lambda raw: raw.update({"Team ID": "077"}),
+            lambda raw: raw["Starting XI"].pop(),
+            lambda raw: raw["Starting XI"].reverse(),
+            lambda raw: raw.update({"Formation": "4-3-3"}),
+            lambda raw: raw.update({"Schema Version": "2.1"}),
+        ):
+            raw = strategy_raw()
+            mutate(raw)
+            with self.assertRaises(ArtifactContractError):
+                validate_starting_xi_lock(raw, source_identity())
+
+    def test_preset_grid_values_and_state_order_follow_the_json_contract(self) -> None:
+        xi = validate_starting_xi_lock(strategy_raw(), source_identity())
+        for slot in (0, 1):
+            for field, value in (
+                ("Row", -1),
+                ("Row", 10),
+                ("Row", True),
+                ("Row", 1.0),
+                ("Row", "1"),
+                ("Row", None),
+                ("Lane", "Left"),
+                ("Lane", " C_Center"),
+                ("Lane", None),
+            ):
+                with self.subTest(slot=slot, field=field, value=value):
+                    raw = preset_raw("Main")
+                    raw["States"]["Normal"][slot]["Grid"][field] = value
+                    with self.assertRaises(ArtifactContractError) as caught:
+                        validate_preset_plan(raw, "Main", xi)
+                    self.assertEqual(
+                        caught.exception.path, f"$.States.Normal[{slot}].Grid.{field}"
+                    )
+        for state in ("Normal", "With Ball", "Without Ball"):
+            for value in (True, 1.0, "1", 2):
+                with self.subTest(state=state, value=value):
+                    raw = preset_raw("Main")
+                    raw["States"][state][1]["Slot"] = value
+                    with self.assertRaises(ArtifactContractError):
+                        validate_preset_plan(raw, "Main", xi)
+
+    def test_state_positions_do_not_impose_slot_depth_or_familiarity_order(
+        self,
+    ) -> None:
+        source = source_identity()
+        xi = validate_starting_xi_lock(strategy_raw(), source)
+        raw = preset_raw("Main")
+        for rows in raw["States"].values():
+            for key in ("Position", "Grid", "Tactical Duty"):
+                rows[1][key], rows[8][key] = rows[8][key], rows[1][key]
+        preset = validate_preset_plan(raw, "Main", xi)
+        compiler_preset = preset.to_compiler_dict(xi, source)
+        compiled = compile_semantic_game_plan(
+            {
+                "Team ID": "77",
+                "Squad": xi.compiler_refs(source),
+                "Presets": {
+                    name: copy.deepcopy(compiler_preset)
+                    for name in ("Main", "Defensive", "Custom")
+                },
+            },
+            strict=True,
+        )
+        self.assertEqual(compiled["squad_ids"], [str(i) for i in range(1, 12)])
+        for states in compiled["state_entries"].values():
+            for entries in states.values():
+                self.assertEqual([entry["slot"] for entry in entries], list(range(11)))
+                self.assertEqual(entries[1]["pos_name"], "LWF")
+                self.assertEqual(entries[8]["pos_name"], "CB")
+                self.assertGreater(entries[1]["row"], entries[8]["row"])
+
+    def test_retention_uses_declared_floor_without_preset_or_instruction_quotas(
+        self,
+    ) -> None:
+        xi = validate_starting_xi_lock(strategy_raw(), source_identity())
+        for name in ("Main", "Defensive", "Custom"):
+            with self.subTest(preset=name):
+                raw = preset_raw(name, join_player_ids=("2", "3"))
+                raw["Rest Defence Contract"]["Retained Protector Slots"] = [1, 2, 3]
+                raw["Rest Defence Contract"]["Minimum Retained"] = 1
+                raw["Advanced Instructions"]["Attacking 1"] = {
+                    "Instruction": "Defensive",
+                    "Designated Slot": 1,
+                }
+                self.assertEqual(
+                    validate_preset_plan(raw, name, xi).join_attack_slots, (1, 2)
+                )
+                raw["Rest Defence Contract"]["Minimum Retained"] = 2
+                with self.assertRaisesRegex(ArtifactDomainError, "Retention Invariant"):
+                    validate_preset_plan(raw, name, xi)
+                raw["Players to Join Attack"] = []
+                raw["Rest Defence Contract"]["Retained Protector Slots"] = list(
+                    range(1, 11)
+                )
+                raw["Rest Defence Contract"]["Minimum Retained"] = 10
+                validate_preset_plan(raw, name, xi)
+                for minimum in (0, 11, True, 1.0):
+                    raw["Rest Defence Contract"]["Minimum Retained"] = minimum
+                    with self.assertRaises(ArtifactContractError):
+                        validate_preset_plan(raw, name, xi)
+
     def test_simplified_preset_retains_raw_contract_and_validates_metadata(
         self,
     ) -> None:

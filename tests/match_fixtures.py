@@ -61,14 +61,23 @@ def basic_instructions() -> dict[str, Any]:
 
 
 def preset_raw(name: str, join_player_ids: tuple[str, ...] = ("2",)) -> dict[str, Any]:
-    def state_rows() -> list[dict[str, Any]]:
+    def state_rows(depths: tuple[int, ...]) -> list[dict[str, Any]]:
+        lanes = (
+            "C_Center",
+            "L_Center",
+            "R_Center",
+            "C_Center",
+            "L_Wing",
+            "R_Wing",
+            "L_Half",
+            "R_Half",
+            "L_Wing",
+            "R_Wing",
+            "C_Center",
+        )
         rows = []
         for slot, position in enumerate(POSITIONS):
-            grid = (
-                {"Row": 0, "Lane": "C_Center"}
-                if slot == 0
-                else {"Row": min(9, slot), "Lane": "C_Center"}
-            )
+            grid = {"Row": depths[slot], "Lane": lanes[slot]}
             rows.append(
                 {
                     "Slot": slot,
@@ -88,9 +97,9 @@ def preset_raw(name: str, join_player_ids: tuple[str, ...] = ("2",)) -> dict[str
         "Risk Budget": PRESET_RISK_BUDGETS[name],
         "Formation Signature": "balanced synthetic fixture",
         "States": {
-            "Normal": state_rows(),
-            "With Ball": state_rows(),
-            "Without Ball": state_rows(),
+            "Normal": state_rows((0, 2, 2, 3, 3, 3, 5, 6, 7, 7, 8)),
+            "With Ball": state_rows((0, 6, 6, 7, 7, 7, 8, 8, 9, 9, 9)),
+            "Without Ball": state_rows((0, 1, 1, 2, 2, 2, 3, 3, 3, 3, 4)),
         },
         "Rest Defence Contract": {
             "Retained Protector Slots": [
@@ -128,62 +137,7 @@ def bench_raw() -> dict[str, Any]:
     return {
         "Schema Version": SCHEMA_VERSION,
         "Artifact": "BenchDecision",
-        "Demand Profile": [
-            {
-                "Demand": demand,
-                "Frozen Source": source,
-                "Required Profile": profile,
-            }
-            for demand, source, profile in (
-                (
-                    "goalkeeper cover",
-                    ["Main Normal Slot 0 Tactical Duty"],
-                    "Level 1 or Level 2 familiarity at GK",
-                ),
-                (
-                    "central cover",
-                    [
-                        "Main Normal Slot 3 Tactical Duty",
-                        "Defensive Without Ball Slot 3 Tactical Duty",
-                    ],
-                    "a familiar central role",
-                ),
-                (
-                    "wide cover",
-                    ["Main With Ball Slot 8 Tactical Duty"],
-                    "a familiar wide role",
-                ),
-                (
-                    "late scoring",
-                    ["Custom With Ball Slot 10 Tactical Duty"],
-                    "a credible scoring role",
-                ),
-            )
-        ],
-        "Substitutes": [
-            {
-                "Player ID": "12",
-                "Demands Served": ["goalkeeper cover"],
-                "Rationale": "Provides the only eligible goalkeeper cover.",
-            }
-        ],
-        "Coverage Gaps": [
-            {
-                "Demand": "central cover",
-                "Status": "Unserved",
-                "Reason": "no non-starting player provides the declared central profile",
-            },
-            {
-                "Demand": "wide cover",
-                "Status": "Unserved",
-                "Reason": "no non-starting player provides the declared wide profile",
-            },
-            {
-                "Demand": "late scoring",
-                "Status": "Unserved",
-                "Reason": "no non-starting player provides the declared scoring profile",
-            },
-        ],
+        "Substitutes": [{"Player ID": "12"}],
     }
 
 
@@ -303,8 +257,6 @@ class SingleModeFakeCompletions:
             raw["Auto Offside Trap"] = "On"
         elif task.startswith("STEP 3 OF 3"):
             raw = bench_raw()
-            for slot, demand in enumerate(raw["Demand Profile"], start=1):
-                demand["Frozen Source"] = [f"Main Normal Slot {slot} Tactical Duty"]
         else:
             raise AssertionError("unexpected fake single-mode API request")
         message = SimpleNamespace(

@@ -1,6 +1,5 @@
 "Model-artifact contract versions and canonical vocabulary."
 
-from pes_workflows.compiler.geometry import LANE_ORDER
 from pes_workflows.compiler.mappings import (
     _ADVANCED_SLOT_SPECS,
     _BASIC_SETTING_SPECS,
@@ -10,6 +9,7 @@ from pes_workflows.compiler.mappings import (
     STATE_NAMES as EDITOR_STATE_NAMES,
 )
 from pes_workflows.domain.advanced_instructions import AdvancedInstruction
+from pes_workflows.domain.formation_grid import GRID_LANES as GRID_LANES
 
 SCHEMA_VERSION = "2.2"
 # Only freshly generated model artifacts declare a schema version. A saved
@@ -21,7 +21,6 @@ PRESET_NAMES = tuple(TACTIC_NAMES.values())
 # GAME_PLAN_RULES II fixes one Risk Budget per preset; the field must equal it.
 PRESET_RISK_BUDGETS = {"Main": "Medium", "Defensive": "Low", "Custom": "High"}
 STATE_NAMES = tuple(EDITOR_STATE_NAMES.values())
-GRID_LANES = tuple(LANE_ORDER)
 BASIC_SETTING_ORDER = tuple(name for name, _, _ in _BASIC_SETTING_SPECS)
 BASIC_LEGAL_VALUES = {
     name: tuple(choices)

@@ -12,9 +12,8 @@ from pes_workflows.domain.csv_schema import (
 from pes_workflows.domain.csv_schema import (
     STARTER_COUNT as STARTER_COUNT,
 )
+from pes_workflows.domain.formation_grid import GRID_LANES, GRID_ROW_MAX, GRID_ROW_MIN
 from pes_workflows.domain.vocabulary import POSITION_IDS
-
-from .geometry import LANE_ORDER, N_ROWS
 
 POSITION_NAME_TO_CODE = {name: str(code) for name, code in POSITION_IDS.items()}
 
@@ -44,8 +43,8 @@ _STATE_ALIASES = {
 }
 
 _GRID_RE = re.compile(
-    rf"^Row ([1-{N_ROWS}]) - ("
-    + "|".join(re.escape(lane) for lane in LANE_ORDER)
+    rf"^Row ([{GRID_ROW_MIN}-{GRID_ROW_MAX}]) - ("
+    + "|".join(re.escape(lane) for lane in GRID_LANES)
     + r")$"
 )
 

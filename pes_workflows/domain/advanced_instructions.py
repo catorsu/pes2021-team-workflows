@@ -14,14 +14,12 @@ class AdvancedInstruction(Enum):
     ATTACKING_FULL_BACKS = (4, "Attacking Full Backs", "attacking", False)
     WING_ROTATION = (5, "Wing Rotation", "attacking", False)
     TIKI_TAKA = (6, "Tiki-Taka", "attacking", False)
-    CENTRING_TARGETS = (7, "Centring Targets", "attacking", False)
     DEFENSIVE = (8, "Defensive", "attacking", True)
     FALSE_WINGER = (9, "False Winger", "attacking", False)
     ANCHORING = (10, "Anchoring", "attacking", True)
     SWARM_THE_BOX = (11, "Swarm the Box", "defending", False)
     DEEP_DEFENSIVE_LINE = (12, "Deep Defensive Line", "defending", False)
     GEGENPRESSING = (13, "Gegenpressing", "defending", False)
-    COUNTER_TARGET = (15, "Counter Target", "defending", True)
     WINGBACK = (16, "Wingback", "defending", False)
 
     code: int
@@ -33,8 +31,6 @@ class AdvancedInstruction(Enum):
         """Check the product's tactical eligibility for a fluid-state position."""
         if self.is_player_targeted and position == "GK":
             return False
-        if self is AdvancedInstruction.COUNTER_TARGET:
-            return position != "CB"
         if self is AdvancedInstruction.DEFENSIVE:
             return position not in {"CF", "SS"}
         return True

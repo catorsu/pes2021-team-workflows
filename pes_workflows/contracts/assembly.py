@@ -6,15 +6,18 @@ import copy
 from collections.abc import Mapping
 from typing import Any
 
+from .bench import BenchDecision
 from .constants import PRESET_NAMES
 from .errors import ArtifactDomainError
+from .preset import PresetPlan
+from .strategy import StartingXILock
 
 
 def assemble_semantic_game_plan(
     source_identity: Mapping[str, Any],
-    xi_lock: Any,
-    presets: Mapping[str, Any],
-    bench: Any,
+    xi_lock: StartingXILock,
+    presets: Mapping[str, PresetPlan],
+    bench: BenchDecision,
     *,
     preset_mode: str = "multi",
 ) -> dict[str, Any]:

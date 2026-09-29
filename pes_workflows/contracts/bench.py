@@ -18,6 +18,7 @@ from .json_codec import (
     _path,
     _validate_common,
 )
+from .strategy import StartingXILock
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +46,7 @@ class BenchDecision:
 
 def validate_bench_decision(
     raw: Mapping[str, Any],
-    xi_lock: Any,
+    xi_lock: StartingXILock,
     source_identity: Mapping[str, Any],
 ) -> BenchDecision:
     artifact = "BenchDecision"

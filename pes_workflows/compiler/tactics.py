@@ -230,7 +230,8 @@ def _compile_tactics(
                 + ", ".join(missing_advanced)
                 + "."
             )
-        for slot_name in _ADVANCED_SLOT_SPECS:
+        seen_team_wide: set[tuple[str, str]] = set()
+        for slot_name, (_, family) in _ADVANCED_SLOT_SPECS.items():
             column, advanced_enum = _compile_advanced_slot(
                 slot_name,
                 advanced[slot_name],
@@ -242,6 +243,14 @@ def _compile_tactics(
                 state_positions=state_positions[tactic],
             )
             if advanced_enum is not None:
+                if advanced_enum != "0":
+                    key = (family, advanced_enum)
+                    if key in seen_team_wide:
+                        raise SemanticGridError(
+                            f"{where}.Advanced Instructions.{slot_name}: duplicates "
+                            f"a team-wide instruction in the {family} slot family."
+                        )
+                    seen_team_wide.add(key)
                 flat[column + tactic] = advanced_enum
 
         if not isinstance(sections["Auto Offside Trap"], str):

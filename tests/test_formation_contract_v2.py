@@ -13,7 +13,6 @@ from pes_workflows.compiler.geometry import (  # noqa: E402
     EDITOR_X_MIN,
     EDITOR_Y_MAX,
     EDITOR_Y_MIN,
-    GK_ANCHOR_XY_M,
     LANE_ORDER,
     LANE_Y_M,
     MIN_EDITOR_Y_GAP,
@@ -32,7 +31,11 @@ from pes_workflows.compiler.geometry import (  # noqa: E402
 )
 from pes_workflows.compiler.mappings import TACTIC_KEYS  # noqa: E402
 from pes_workflows.contracts.assembly import assemble_semantic_game_plan  # noqa: E402
+from pes_workflows.contracts.bench import validate_bench_decision
 from pes_workflows.contracts.errors import ArtifactDomainError  # noqa: E402
+from pes_workflows.contracts.preset import validate_preset_plan
+from pes_workflows.contracts.strategy import validate_starting_xi_lock
+from tests.match_fixtures import bench_raw, preset_raw, source_identity, strategy_raw
 
 
 def _basic_instructions() -> dict[str, Any]:
@@ -52,7 +55,7 @@ def _basic_instructions() -> dict[str, Any]:
     }
 
 
-def _state() -> list[dict[str, Any]]:
+def _state(depth: int = 3) -> list[dict[str, Any]]:
     lanes = (
         "L_Wing",
         "L_Half",
@@ -62,13 +65,13 @@ def _state() -> list[dict[str, Any]]:
         "R_Half",
         "R_Wing",
     )
-    rows = [{"Slot": 0, "Position": "GK", "Grid Assignment": "GK_Anchor"}]
+    rows = [{"Slot": 0, "Position": "GK", "Grid Assignment": "Row 0 - C_Center"}]
     for slot in range(1, 11):
         rows.append(
             {
                 "Slot": slot,
                 "Position": "CB",
-                "Grid Assignment": f"Row 3 - {lanes[(slot - 1) % len(lanes)]}",
+                "Grid Assignment": f"Row {depth} - {lanes[(slot - 1) % len(lanes)]}",
             }
         )
     return rows
@@ -86,7 +89,7 @@ def _plan() -> dict[str, Any]:
         "Advanced Instructions": advanced,
         "States": {
             "Normal": _state(),
-            "With Ball": _state(),
+            "With Ball": _state(6),
             "Without Ball": _state(),
         },
     }
@@ -315,14 +318,14 @@ class ContractV2CompilerTests(unittest.TestCase):
         ):
             compile_semantic_game_plan(plan, strict=True)
 
-    def test_counter_target_accepts_midfielder_but_not_the_goalkeeper(self) -> None:
+    def test_anchoring_accepts_midfielder_but_not_the_goalkeeper(self) -> None:
         plan = _plan()
         main = plan["Presets"]["Main"]
         main["States"]["Normal"][1]["Position"] = "AMF"
         main["States"]["With Ball"][1]["Position"] = "AMF"
         main["States"]["Without Ball"][1]["Position"] = "AMF"
-        main["Advanced Instructions"]["Defending 1"] = {
-            "Instruction": "Counter Target",
+        main["Advanced Instructions"]["Attacking 1"] = {
+            "Instruction": "Anchoring",
             "Designated Player": {"Player ID": "2", "Player": "Player 2"},
         }
 
@@ -330,12 +333,12 @@ class ContractV2CompilerTests(unittest.TestCase):
         self.assertEqual(compiled["main_normal_entries"][1]["pos_name"], "AMF")
         self.assertTrue(
             any(
-                row.instruction.label == "Counter Target" and row.player_id == "2"
+                row.instruction.label == "Anchoring" and row.player_id == "2"
                 for row in compiled["targeted_instructions"]
             )
         )
 
-        main["Advanced Instructions"]["Defending 1"]["Designated Player"] = {
+        main["Advanced Instructions"]["Attacking 1"]["Designated Player"] = {
             "Player ID": "1",
             "Player": "Player 1",
         }
@@ -367,12 +370,188 @@ class ContractV2CompilerTests(unittest.TestCase):
                 str(expected_editor_x[row]),
             )
 
+    def test_every_goalkeeper_cell_roundtrips_through_artifacts_and_compiler(
+        self,
+    ) -> None:
+        source = source_identity()
+        xi = validate_starting_xi_lock(strategy_raw(), source)
+        bench = validate_bench_decision(bench_raw(), xi, source)
+        expected_x = [3, 6, 11, 16, 21, 26, 31, 36, 41, 46]
+        expected_y = dict(zip(LANE_ORDER, [11, 29, 42, 52, 62, 75, 93]))
+        for mode, row, lane in itertools.product(
+            ("single", "multi"), range(10), LANE_ORDER
+        ):
+            with self.subTest(mode=mode, row=row, lane=lane):
+                presets = {}
+                for name in (
+                    ("Main",) if mode == "single" else ("Main", "Defensive", "Custom")
+                ):
+                    raw = preset_raw(name)
+                    for state_name, rows in raw["States"].items():
+                        rows[0]["Grid"] = {"Row": row, "Lane": lane}
+                        # Keep this projection test free of collisions with Slot 0.
+                        lower = {"Normal": 1, "With Ball": 6, "Without Ball": 1}[
+                            state_name
+                        ]
+                        for outfielder in rows[1:]:
+                            outfielder["Grid"]["Row"] = lower + (row == lower)
+                    presets[name] = validate_preset_plan(
+                        raw, name, xi, preset_mode=mode
+                    )
+                    self.assertEqual(presets[name].to_model_dict(), raw)
+                plan = assemble_semantic_game_plan(
+                    source, xi, presets, bench, preset_mode=mode
+                )
+                original = copy.deepcopy(plan)
+                strict_result = compile_semantic_game_plan(
+                    plan, strict=True, preset_mode=mode
+                )
+                self.assertEqual(
+                    strict_result, compile_semantic_game_plan(plan, preset_mode=mode)
+                )
+                for tactic, states in strict_result["state_entries"].items():
+                    for fluid, entries in states.items():
+                        goalkeeper = entries[0]
+                        self.assertEqual(
+                            (
+                                goalkeeper["slot"],
+                                goalkeeper["pos_name"],
+                                goalkeeper["row"],
+                                goalkeeper["lane"],
+                            ),
+                            (0, "GK", row, lane),
+                        )
+                        flat = strict_result["flat_columns"]
+                        self.assertEqual(flat[f"Position1{fluid}{tactic}"], "0")
+                        self.assertEqual(
+                            flat[f"LocationX1{fluid}{tactic}"], str(expected_x[row])
+                        )
+                        self.assertEqual(
+                            flat[f"LocationY1{fluid}{tactic}"], str(expected_y[lane])
+                        )
+                self.assertEqual(plan, original)
+
+    def test_outfield_row_bounds_agree_at_artifact_and_compiler_boundaries(
+        self,
+    ) -> None:
+        xi = validate_starting_xi_lock(strategy_raw(), source_identity())
+        for state_name, legal_rows in (
+            ("Normal", range(1, 10)),
+            ("With Ball", range(6, 10)),
+            ("Without Ball", range(1, 5)),
+        ):
+            for slot, row in itertools.product(range(1, 11), range(10)):
+                with self.subTest(state=state_name, slot=slot, row=row):
+                    raw = preset_raw("Main")
+                    raw["States"][state_name][slot]["Grid"]["Row"] = row
+                    plan = _plan()
+                    plan["Presets"]["Main"]["States"][state_name][slot][
+                        "Grid Assignment"
+                    ] = f"Row {row} - C_Center"
+                    if row in legal_rows:
+                        validate_preset_plan(raw, "Main", xi)
+                        compiled = compile_semantic_game_plan(plan, strict=True)
+                        if state_name != "Normal":
+                            fluid = "F2" if state_name == "With Ball" else "F3"
+                            x_editor = int(
+                                compiled["flat_columns"][
+                                    f"LocationX{slot + 1}{fluid}S1"
+                                ]
+                            )
+                            self.assertTrue(
+                                x_editor > 26 if fluid == "F2" else x_editor < 26
+                            )
+                    else:
+                        with self.assertRaises(ArtifactDomainError) as caught:
+                            validate_preset_plan(raw, "Main", xi)
+                        self.assertEqual(
+                            caught.exception.path,
+                            f"$.States.{state_name}[{slot}].Grid.Row",
+                        )
+                        for strict in (False, True):
+                            with self.assertRaisesRegex(
+                                SemanticGridError, "Row must be between"
+                            ):
+                                compile_semantic_game_plan(plan, strict=strict)
+
+    def test_goalkeeper_cooccupation_resolves_with_all_ten_outfielders(self) -> None:
+        for lane in LANE_ORDER:
+            with self.subTest(lane=lane):
+                plan = _plan()
+                rows = plan["Presets"]["Main"]["States"]["With Ball"]
+                for item in rows:
+                    item["Grid Assignment"] = f"Row 6 - {lane}"
+                compiled = compile_semantic_game_plan(plan, strict=True)
+                self.assertEqual(
+                    compiled, compile_semantic_game_plan(plan, strict=True)
+                )
+                entries = compiled["state_entries"]["S1"]["F2"]
+                self.assertEqual([entry["slot"] for entry in entries], list(range(11)))
+                self.assertEqual([entry["x"] for entry in entries], [62.5] * 11)
+                self.assertEqual(entries[0]["kind"], "gk")
+                for left, right in zip(entries, entries[1:]):
+                    self.assertGreaterEqual(right["y"] - left["y"], MIN_LATERAL_GAP_M)
+                    left_y = int(
+                        compiled["flat_columns"][f"LocationY{left['slot_1based']}F2S1"]
+                    )
+                    right_y = int(
+                        compiled["flat_columns"][f"LocationY{right['slot_1based']}F2S1"]
+                    )
+                    self.assertGreaterEqual(right_y - left_y, MIN_EDITOR_Y_GAP)
+
+    def test_goalkeeper_is_the_only_slot_with_position_gk(self) -> None:
+        xi = validate_starting_xi_lock(strategy_raw(), source_identity())
+        for state, slot, position in itertools.product(
+            ("Normal", "With Ball", "Without Ball"), (0, 1), ("GK", "CB")
+        ):
+            if (slot == 0) == (position == "GK"):
+                continue
+            with self.subTest(state=state, slot=slot, position=position):
+                raw = preset_raw("Main")
+                raw["States"][state][slot]["Position"] = position
+                with self.assertRaises(ArtifactDomainError):
+                    validate_preset_plan(raw, "Main", xi)
+                plan = _plan()
+                plan["Presets"]["Main"]["States"][state][slot]["Position"] = position
+                for strict in (False, True):
+                    with self.assertRaisesRegex(SemanticGridError, "GK"):
+                        compile_semantic_game_plan(plan, strict=strict)
+
+    def test_grid_labels_require_explicit_legal_row_and_lane(self) -> None:
+        for strict, slot, grid in itertools.product(
+            (False, True),
+            (0, 1),
+            (
+                "GK_Anchor",
+                "Row -1 - C_Center",
+                "Row 10 - C_Center",
+                "Row 1.0 - C_Center",
+                "Row 0 - Left",
+            ),
+        ):
+            with self.subTest(strict=strict, slot=slot, grid=grid):
+                plan = _plan()
+                plan["Presets"]["Main"]["States"]["Normal"][slot]["Grid Assignment"] = (
+                    grid
+                )
+                with self.assertRaises(SemanticGridError):
+                    compile_semantic_game_plan(plan, strict=strict)
+
+    def test_slot_values_are_integer_identity_handles_in_every_state(self) -> None:
+        for strict, value in itertools.product((False, True), (True, 1.0, "1", 2)):
+            with self.subTest(strict=strict, value=value):
+                plan = _plan()
+                plan["Presets"]["Main"]["States"]["Normal"][1]["Slot"] = value
+                with self.assertRaises(SemanticGridError):
+                    compile_semantic_game_plan(plan, strict=strict)
+
     def test_static_grid_is_symmetric_and_projects_inside_both_envelopes(self) -> None:
         _validate_static_grid_definition()
 
         self.assertEqual(
             ROW_X_M,
             {
+                0: 6.0,
                 1: 12.5,
                 2: 22.5,
                 3: 32.5,
@@ -397,12 +576,14 @@ class ContractV2CompilerTests(unittest.TestCase):
             },
         )
         self.assertEqual(list(LANE_Y_M), LANE_ORDER)
-        self.assertEqual(GK_ANCHOR_XY_M, (X_LEGAL_MIN, PITCH_WIDTH_M / 2))
+        self.assertEqual(ROW_X_M[0], X_LEGAL_MIN)
         self.assertEqual(ROW_X_M[5], PITCH_LENGTH_M / 2)
         self.assertTrue(
             all(
                 right - left == 10.0
-                for left, right in zip(ROW_X_M.values(), list(ROW_X_M.values())[1:])
+                for left, right in zip(
+                    list(ROW_X_M.values())[1:], list(ROW_X_M.values())[2:]
+                )
             )
         )
         for row in range(1, 5):
@@ -410,10 +591,9 @@ class ContractV2CompilerTests(unittest.TestCase):
         for left, right in zip(LANE_ORDER, reversed(LANE_ORDER)):
             self.assertEqual(LANE_Y_M[left] + LANE_Y_M[right], PITCH_WIDTH_M)
 
-        physical_points = [GK_ANCHOR_XY_M]
-        physical_points.extend(
+        physical_points = [
             (x_m, y_m) for x_m in ROW_X_M.values() for y_m in LANE_Y_M.values()
-        )
+        ]
         for x_m, y_m in physical_points:
             with self.subTest(x_m=x_m, y_m=y_m):
                 self.assertTrue(X_LEGAL_MIN <= x_m <= X_LEGAL_MAX)
@@ -457,7 +637,7 @@ class ContractV2CompilerTests(unittest.TestCase):
 
     def test_state_invariants_reject_subminimum_same_row_physical_gap(self) -> None:
         entries = [
-            {"kind": "gk", "slot": 0, "x": 6.0, "y": 34.0},
+            {"kind": "gk", "slot": 0, "row": 0, "x": 6.0, "y": 34.0},
             {"kind": "grid", "slot": 1, "row": 3, "x": 32.5, "y": 34.0},
             {"kind": "grid", "slot": 2, "row": 3, "x": 32.5, "y": 36.9},
         ]
@@ -472,7 +652,7 @@ class ContractV2CompilerTests(unittest.TestCase):
                 plan["Presets"]["Main"]["States"]["Normal"][1]["Grid Assignment"] = (
                     "Row 10 - C_Center"
                 )
-                with self.assertRaisesRegex(SemanticGridError, "Row 1-9"):
+                with self.assertRaisesRegex(SemanticGridError, "Row 0-9"):
                     compile_semantic_game_plan(plan, strict=strict)
 
     def test_duplicate_cell_spreading_is_deterministic(self) -> None:

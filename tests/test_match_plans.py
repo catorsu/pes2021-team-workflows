@@ -716,8 +716,8 @@ class MatchPlanScriptsTests(unittest.TestCase):
                         if raw["Artifact"] == "BenchDecision":
                             bench_requests.append(input)
                             # Reject the former verbose schema, then accept IDs only.
-                            if len(bench_requests) > 1:
-                                raw = compact_bench("12")
+                            if len(bench_requests) == 1:
+                                raw["Demand Profile"] = []
                         text = json.dumps(raw)
                         if cmd[0] == "codex":
                             Path(
@@ -1056,16 +1056,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
     def test_real_runner_isolates_team_artifacts_and_preserves_attempts(self) -> None:
         output = self.root / single.OUTPUT_DIRECTORY_NAME
         client = SingleModeFakeClient()
-        create = client.completions.create
-
-        def compact_create(**kwargs: Any) -> SimpleNamespace:
-            response = create(**kwargs)
-            message = response.choices[0].message
-            if json.loads(message.content)["Artifact"] == "BenchDecision":
-                message.content = json.dumps(compact_bench("12"))
-            return response
-
-        client.completions.create = compact_create
         runner = single.MatchPlanRunner(
             llm_adapter=SimpleNamespace(
                 generate=lambda messages, *args, **kwargs: (
@@ -1192,6 +1182,14 @@ class MatchPlanScriptsTests(unittest.TestCase):
             )
             policy = loader.build_system_prompt()
             bench_policy = policy.partition(f"### Call {turn} — `BenchDecision`")[2]
+            policy_before_bench = policy.partition(
+                f"### Call {turn} — `BenchDecision`"
+            )[0]
+            self.assertNotIn("Demand Profile", policy_before_bench)
+            self.assertNotIn("gap statuses", policy_before_bench)
+            self.assertIn("Slot 0 may use any Row 0–9 in every state", policy)
+            self.assertNotIn("Slot 0 always uses Row 0", policy)
+            self.assertNotIn("fixed goalkeeper anchor", policy)
             self.assertIn(f"frozen Starting XI duties of {names}", bench_policy)
             self.assertIn("all three frozen states", bench_policy)
             self.assertIn("alternative deployments", bench_policy)

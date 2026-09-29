@@ -67,11 +67,11 @@ Risk Budget defines the transition exposure a preset accepts within the boundary
 
 All three presets use the exact same eleven player identities in the same permanent Slot order 0–10. Slot 0 is the goalkeeper (Level 1 or Level 2 at `GK`); Slots 1–10 are the ten outfielders.
 
-Slot 0 uses Row 0, `C_Center`, and `GK` in every state of every preset.
+Slot 0 always uses `GK` and may independently use any Row 0–9 and any of the seven legal Lanes in every state of every preset.
 
 The Starting XI must simultaneously satisfy all three scenarios without substitution. Outfielder roles prioritize Level-2 and Level-1 positions for baseline duties, while Level-0 assignments are fully legitimate across any state whenever required by tactical necessity (Section III).
 
-**Slot Immutability & Positional Independence:** Slot order is established once during the Starting-XI lock and remains globally immutable across all artifacts. The lock numbers outfield Slots by a labelling convention (deepest functional line to highest, left to right, remaining ties by ascending numeric Player ID); the baseline allocation behind that convention is not transmitted to later calls and creates no positional obligation. A Slot is purely an abstract identity handle: each preset and fluid state positions every outfield Slot independently on the grid (Rows 1–9, any Lane), with no requirement for Slot numerical order to reflect spatial depth in any preset or state.
+**Slot Immutability & Positional Independence:** Slot order is established once during the Starting-XI lock and remains globally immutable across all artifacts. The lock numbers outfield Slots by a labelling convention (deepest functional line to highest, left to right, remaining ties by ascending numeric Player ID); the baseline allocation behind that convention is not transmitted to later calls and creates no positional obligation. A Slot is purely an abstract identity handle: each preset and fluid state positions every outfield Slot independently on the grid (any Lane, with state-specific Row bounds from Section IV), with no requirement for Slot numerical order to reflect spatial depth in any preset or state.
 
 **State Array Ordering Invariant:** In all state arrays (`Normal`, `With Ball`, `Without Ball`), objects must strictly be emitted by ascending Slot index ($0 \to 10$, where array index $k$ is always Slot $k$). Never re-order array elements to follow spatial depth or tactical lines.
 
@@ -99,11 +99,11 @@ Risk Budget defines the balanced transition exposure accepted by the core system
 
 The `Main` preset uses exactly eleven player identities in permanent Slot order 0–10. Slot 0 is the goalkeeper (Level 1 or Level 2 at `GK`); Slots 1–10 are the ten outfielders.
 
-Slot 0 uses Row 0, `C_Center`, and `GK` in every state.
+Slot 0 always uses `GK` and may independently use any Row 0–9 and any of the seven legal Lanes in every state.
 
 Select the Starting XI exclusively to optimize the `Main` system. Do not reserve a player, weaken a duty, or introduce a structural trade-off for any alternate situational setup. Outfielder roles prioritize Level-2 and Level-1 positions for baseline duties, while Level-0 assignments are fully legitimate across any state whenever required by tactical necessity (Section III).
 
-**Slot Immutability & Positional Independence:** Slot order is established once during the Starting-XI lock and remains globally immutable across all artifacts. The lock numbers outfield Slots by a labelling convention (deepest functional line to highest, left to right, remaining ties by ascending numeric Player ID); the baseline allocation behind that convention is not transmitted to later calls and creates no positional obligation. A Slot is purely an abstract identity handle: each fluid state positions every outfield Slot independently on the grid (Rows 1–9, any Lane), with no requirement for Slot numerical order to reflect spatial depth in any state.
+**Slot Immutability & Positional Independence:** Slot order is established once during the Starting-XI lock and remains globally immutable across all artifacts. The lock numbers outfield Slots by a labelling convention (deepest functional line to highest, left to right, remaining ties by ascending numeric Player ID); the baseline allocation behind that convention is not transmitted to later calls and creates no positional obligation. A Slot is purely an abstract identity handle: each fluid state positions every outfield Slot independently on the grid (any Lane, with state-specific Row bounds from Section IV), with no requirement for Slot numerical order to reflect spatial depth in any state.
 
 **State Array Ordering Invariant:** In all state arrays (`Normal`, `With Ball`, `Without Ball`), objects must strictly be emitted by ascending Slot index ($0 \to 10$, where array index $k$ is always Slot $k$). Never re-order array elements to follow spatial depth or tactical lines.
 
@@ -121,9 +121,9 @@ Every preset has three complete eleven-player states:
 * `With Ball`: the in-possession macro-structural attacking shape and optimal advanced baseline coordinates;
 * `Without Ball`: the out-of-possession macro-structural defensive block shape and optimal screening coordinates.
 
-Fluid states govern whole-team structural metamorphosis between phases (e.g., base 4-3-3 transforming into in-possession 3-2-4-1 and out-of-possession 4-4-2 mid-block). States may share identical Positions and Grids or transform structurally between phases when supported by each Slot's `Tactical Duty`.
+Fluid states govern whole-team structural metamorphosis between phases (e.g., base 4-3-3 transforming into in-possession 3-2-4-1 and out-of-possession 4-4-2 mid-block). States may retain identical Positions, but `With Ball` and `Without Ball` outfield Grids must occupy their respective permitted halves (Section IV). `Normal` may share anchors with either phase; all shared anchors must satisfy that phase's Row bounds. Structural transformations must be supported by each Slot's `Tactical Duty`.
 
-The legal Position codes are `GK`, `CB`, `LB`, `RB`, `DMF`, `CMF`, `LMF`, `RMF`, `AMF`, `LWF`, `RWF`, `SS`, and `CF`. Slot 0 is the sole goalkeeper in every state and always uses `GK` on Row 0, `C_Center`.
+The legal Position codes are `GK`, `CB`, `LB`, `RB`, `DMF`, `CMF`, `LMF`, `RMF`, `AMF`, `LWF`, `RWF`, `SS`, and `CF`. Slot 0 is the sole goalkeeper in every state and always uses `GK`; its Row and Lane are independently configured under Section IV.
 
 ### Familiarity and Tactical Role Assignment
 
@@ -167,6 +167,14 @@ Playing Styles, Player Skills, COM Playing Styles, Abilities, and Traits constit
 * **Behavioral interpretation:** Explain expected movement and execution through the layers that actually apply. Attribute a documented style tendency to the active Playing Style when compatible; apply Player Skills and COM Playing Styles within their documented scopes; use Abilities and Traits as comparative execution and durability evidence; and identify team-setting or Advanced-Instruction effects when they are relevant.
 * **Combined configuration:** Do not choose an unnatural Position solely to activate or suppress a Playing Style. Tactical function and structural suitability govern the assignment, with the active or absent style state forming part of the resulting tactical interpretation.
 
+### CB engine baseline and Full Red scope
+
+For match-plan evaluation, apply this PES 2021 baseline when the assigned Position is `CB`: `Extra Frontman` and `The Destroyer` normally maintain defensive depth and positional discipline relative to the configured phase structure. Neither style alone implies routine attacking runs, inadequate retention, or a need for suppression. Ball-oriented defensive challenges by `The Destroyer` are not attacking forward runs.
+
+The style-driven open-play advance of an `Extra Frontman` CB is confined to the `Custom` preset while attack/defense mentality is at maximum, Level 4 (`Full Red`). In this workflow, activate Full Red only during the final 3 minutes of a match while trailing; it is unavailable to `Main` and `Defensive`, including the single-mode `Main` system. Outside that condition, apply the ordinary CB baseline. Mentality is a runtime condition, not an additional Basic Instruction or artifact field.
+
+This CB-specific scope refines the generic movement descriptions in `PLAYER_GLOSSARY` §1 for match planning; it changes neither activation compatibility nor behavior at non-`CB` Positions. `Players to Join Attack` retains its separate attacking-set-piece and maximum-mentality scope (Section VIII); do not infer style-driven open-play runs from set-piece participation.
+
 ## IV. Semantic grid
 
 Interpret each Grid coordinate as the player's phase-specific structural anchor: the nominal position within that state's formation. Use the anchor to assess spacing, line membership, support relationships, and configured coverage. On a phase change, use the new state's anchor as the positional reference for expected repositioning. Describe the timing and destinations of individual runs, overlaps, recoveries, and support movements in `Tactical Duty`, using the current situation and combined tactical layers.
@@ -186,7 +194,7 @@ The grid uses depth bands across the 105m pitch length and lateral channels:
 | `8` | 78m – 88m             | Opponent Final-Third Entry, Down to the Penalty-Area Edge |
 | `9` | 88m – 105m            | Opponent Penalty Area to Goal Line                        |
 
-*Notes: Row 0 is strictly restricted to the Goalkeeper (`GK` at `C_Center`); outfield players must be assigned to Rows 1–9. Rows 2–7 mirror pairwise around the halfway line (Row r ↔ Row 9 − r); the own end is split into Rows 0 and 1 to give the goalkeeper a dedicated row, so Row 9 mirrors Rows 0 and 1 together. Zone descriptions are orientation aids; the depth ranges are normative.*
+*Notes: Row 0 is available only to the goalkeeper, but Slot 0 may use any Row 0–9 and any of the seven legal Lanes. Outfield players must be assigned to Rows 1–9, subject to the state bounds below. Rows 2–8 mirror pairwise around the halfway line (Row r ↔ Row 10 − r); the own end is split into Rows 0 and 1, so Row 9 mirrors Rows 0 and 1 together. Zone descriptions are orientation aids; the depth ranges are normative.*
 
 The legal Lanes, from left to right in the team's attacking direction, are `L_Wing`, `L_Half`, `L_Center`, `C_Center`, `R_Center`, `R_Half`, and `R_Wing`.
 
@@ -195,6 +203,22 @@ Co-occupation is expressed by assigning multiple players to the same semantic ce
 Apply structural checks to the configured anchors in each state. Explain expected movement and resulting exposure separately in `Tactical Duty` and `Mechanisms`.
 
 For each duty, identify its structural role, relevant movement tendency, situational trigger, and support or coverage relationship. Distinguish the configured allocation from the behavior expected while play develops.
+
+### Half-pitch containment of fluid-state anchors
+
+Depth X is always measured from the team's own goal toward the opponent's goal; do not reverse Row meanings between phases. The halfway line is at X = 52.5m. Apply these mandatory formation-panel bounds to every outfield Slot (1–10) in every active preset (`Main`, `Defensive`, `Custom` where applicable):
+
+| State | Permitted outfield Rows | Required pitch half |
+| --- | --- | --- |
+| `Normal` | `1`–`9` | Either half; no additional half-pitch restriction |
+| `With Ball` | `6`–`9` | Opponent's half: the opponent is the defending side |
+| `Without Ball` | `1`–`4` | Own half: the team is the defending side |
+
+Row 5 spans 47m–58m and straddles halfway, so it is unavailable to outfielders in both `With Ball` and `Without Ball`. Do not round, reinterpret, or remap this band to satisfy strict containment. Slot 0 is exempt from outfield compression and may use any Row 0–9 and any legal Lane in every state while retaining Position `GK`.
+
+Compress the entire outfield unit, preserving coverage and passing continuity within the permitted half. A retained protector occupies the rear or screening structure of the `With Ball` block inside the opponent's half; defensive depth is relative to that block, not an exemption allowing an own-half anchor. Choose the goalkeeper's anchor independently and explain goalkeeper-to-block distribution in its `Tactical Duty`.
+
+These bounds constrain nominal formation-panel anchors, not every live position during runs, recovery, or phase transitions. Duties, Playing Styles, mentality, and instructions do not make an out-of-bounds anchor valid.
 
 ### 7-Lane Geometry & Modern Spatial Topology
 
@@ -212,11 +236,12 @@ Tactical lines across all fluid states (`Normal`, `With Ball`, `Without Ball`) m
 
 ### State Structure Checks
 
-These three checks are the only structural checks applied to a state. Apply all three to `Normal`, `With Ball`, and `Without Ball` (Section X, Step 1), evaluating the configured Position-and-Grid anchors:
+These four checks are the only structural checks applied to a state. Apply checks 1–3 to `Normal`, `With Ball`, and `Without Ball` (Section X, Step 1); apply check 4 using the state's Row bounds above. Evaluate the configured Position-and-Grid anchors:
 
 1. **Lane coverage:** the deepest outfield line and the midfield line of the state leave no unhedged lateral chasm; any Lane deliberately left open is covered by a named Slot's shifting responsibility stated in its `Tactical Duty`.
 2. **Passing-triangle continuity:** adjacent vertical lines are staggered or otherwise offer diagonal passing options; identical lane stacking across adjacent lines occurs only as a deliberate overload stated in `Tactical Duty`.
-3. **Spatial continuity:** logical passing distances between lines, and a rest-defence and midfield transition structure that honors the preset's Rest Defence Contract (Section VIII).
+3. **Spatial continuity:** logical passing distances between outfield lines, and a rest-defence and midfield transition structure that honors the preset's Rest Defence Contract (Section VIII).
+4. **Half-pitch containment:** every outfield anchor satisfies the state-specific Row bounds above. No outfielder, including a retained protector, is exempt; Slot 0 may use any Row 0–9 and any legal Lane.
 
 Symmetry, line-counting, and odd/even lateral balance are not checks.
 
@@ -258,15 +283,17 @@ Slider values (1–10) operate independently of grid Rows and Lanes.
 
 <!-- [IF_MODE:multi] -->
 
-Each preset has two Attacking slots and two Defending slots. Team-wide instructions cannot be duplicated within the same slot family. Player-specific instructions (`Anchoring`, `Defensive`, `Counter Target`) bind to exactly one starting outfielder per slot, and **may be assigned across multiple slots within the same family to target different outfielders**. No single player may be assigned the same instruction more than once.
+Each preset has two Attacking slots and two Defending slots. Team-wide instructions cannot be duplicated within the same slot family. Player-specific instructions (`Anchoring`, `Defensive`) bind to exactly one starting outfielder per slot, and **may be assigned across multiple slots within the same family to target different outfielders**. No single player may be assigned the same instruction more than once.
 
 <!-- [ENDIF_MODE] -->
 
 <!-- [IF_MODE:single] -->
 
-The `Main` preset has two Attacking slots and two Defending slots. Team-wide instructions cannot be duplicated within the same slot family. Player-specific instructions (`Anchoring`, `Defensive`, `Counter Target`) bind to exactly one starting outfielder per slot, and **may be assigned across multiple slots within the same family to target different outfielders**. No single player may be assigned the same instruction more than once.
+The `Main` preset has two Attacking slots and two Defending slots. Team-wide instructions cannot be duplicated within the same slot family. Player-specific instructions (`Anchoring`, `Defensive`) bind to exactly one starting outfielder per slot, and **may be assigned across multiple slots within the same family to target different outfielders**. No single player may be assigned the same instruction more than once.
 
 <!-- [ENDIF_MODE] -->
+
+The catalogues below are exhaustive for this contract. Use an exact name from the applicable slot-family catalogue or `"Blank"`; other instruction names and aliases are invalid.
 
 ### Attacking-slot instructions
 
@@ -276,10 +303,9 @@ The `Main` preset has two Attacking slots and two Defending slots. Team-wide ins
 * **Wing Rotation:** A teammate supports the ball carrier near the touchline while others attack the created space.
 * **Tiki-Taka:** Players prioritize possession support and rarely run behind the defence.
 * **False No. 9:** The center forward drops toward midfield while teammates attack the vacated space.
-* **Centring Targets:** Strikers position themselves to attack crosses when a winger receives the ball.
 * **False Full Backs:** Full-backs move into midfield to create a central numerical advantage.
 * **Anchoring:** Designated outfielder holds channel without horizontal drift.
-* **Defensive:** Designated outfielder refrains from advancing during possession to preserve rest defence. The designated player must not use `CF` or `SS` in any of the three fluid states.
+* **Defensive:** Designated outfielder refrains from advancing during possession to preserve rest defence. The designated player must not use `CF` or `SS` in any of the three fluid states. This restrains individual forward commitment relative to the phase structure; it does not override phase re-anchoring or the Row bounds in Section IV. Apply the CB-specific limits below.
 
 ### Defending-slot instructions
 
@@ -287,7 +313,12 @@ The `Main` preset has two Attacking slots and two Defending slots. Team-wide ins
 * **Gegenpressing:** Multiple players press immediately after possession loss; consumes substantial stamina.
 * **Deep Defensive Line:** Defensive line drops to protect against through balls.
 * **Swarm the Box:** Players crowd the penalty area against flank attacks.
-* **Counter Target:** Designated starting outfielder remains advanced during defending phases to conserve stamina. The instruction supplies the documented defensive-tracking exemption. The designated player must not use `CB` in any of the three fluid states. Assess tactical suitability among eligible starting outfielders under the common selection criteria below.
+
+### CB-specific limits on `Defensive`
+
+Apply Section III's CB baseline before evaluating instructions. In `Main` and `Defensive`, do not assign `Defensive` to a `CB` carrying `The Destroyer` or `Extra Frontman` solely to prevent supposed routine forward runs, and do not mandate silencing either Playing Style. Treat their ordinary positional discipline as sufficient for that requirement; any different tactical requirement must be evaluated on its own evidence.
+
+In `Custom`, using `Defensive` on an `Extra Frontman` CB to suppress Full Red forward commitment is strictly situational and optional. Assess this benefit only for Section III's trailing, final-3-minutes, Level-4 condition. Never make this assignment or forced style dormancy a prerequisite for a valid plan or retained-protection floor; establish a feasible configuration without it, then assess any optional benefit under the common criteria below. Outside that condition, apply the ordinary CB baseline.
 
 ### Instruction budget and contribution assessment
 
@@ -354,7 +385,7 @@ Carry the committed contract into Steps 4 and 5. Select compatible settings and 
 ### Rest Defence Contract
 
 * `Retained Protector Slots`: non-empty array of distinct outfield Slots (1–10) designated as the primary rest-defence unit for open-play depth coverage, defensive transition containment, aerial safety, or second-ball screening during attacking phases.
-* `Minimum Retained`: integer from 1 to the length of `Retained Protector Slots` — the mandatory minimum number of protectors that must remain allocated to defensive depth and protection during open-play attacks, attacking set pieces, and maximum attacking mentality. The protectors who remain for the set-piece/maximum-mentality calculation are exactly the members of `Retained Protector Slots` not listed in `Players to Join Attack`. Calibrate the floor to the preset's Risk Budget; it can never exceed the array length:
+* `Minimum Retained`: integer from 1 to the length of `Retained Protector Slots` — the mandatory minimum number of protectors that must remain allocated to defensive depth and protection during open-play attacks, attacking set pieces, and maximum attacking mentality. The protectors available for the set-piece/maximum-mentality calculation are the members of `Retained Protector Slots` not listed in `Players to Join Attack`; the combined-support audit below must also confirm their actual retention under the applicable conditions. Calibrate the floor to the preset's Risk Budget; it can never exceed the array length:
 
 <!-- [IF_MODE:multi] -->
 
@@ -372,23 +403,23 @@ Carry the committed contract into Steps 4 and 5. Select compatible settings and 
 
 ### What the contract binds
 
-1. **`With Ball` structure (Step 1):** every Retained Protector Slot's `With Ball` Position and Grid must form part of the configured rear structure or screening allocation, and its `Tactical Duty` must state that structural responsibility together with expected conditional movement and coverage.
-2. **Combined tactical support (Steps 1–4):** assess each Retained Protector Slot through its anchor, duty, active Playing Style, execution profile, Basic Instructions, and any applicable Advanced Instruction. The combined configuration must support the committed retention requirement. Evaluate collective coverage under the intended conditions: protector membership does not by itself require individual immobility, and conditional movement is permitted only while the required retained protection is maintained. If support is insufficient, compare alternatives in the still-editable layers under Sections VI and X. Determine any instruction requirement through the common assessment and Tier-1 feasibility test of Section VI.
+1. **`With Ball` structure (Step 1):** every Retained Protector Slot's `With Ball` Position and Grid must form part of the configured rear structure or screening allocation within the opponent-half block (Section IV), and its `Tactical Duty` must state that structural responsibility together with expected conditional movement and coverage.
+2. **Combined tactical support (Steps 1–4):** assess each Retained Protector Slot through its anchor, duty, active Playing Style, execution profile, Basic Instructions, and any applicable Advanced Instruction. The combined configuration must support the committed retention requirement. Evaluate collective coverage under the intended conditions: protector membership does not by itself require individual immobility, and conditional movement is permitted only while the required retained protection is maintained. If support is insufficient, compare alternatives in the still-editable layers under Sections VI and X. Determine any instruction requirement through the common assessment and Tier-1 feasibility test of Section VI. For `Custom`'s Full Red condition, satisfy `Minimum Retained` with protectors other than active `Extra Frontman` CBs, without relying on the optional `Defensive` assignment or forced style dormancy. An active `Extra Frontman` CB does not count toward that floor merely because it is absent from `Players to Join Attack`. Resolve any shortfall through still-editable choices under Section X, not by making the optional instruction mandatory.
 3. **Players to Join Attack (Step 5):** enforce the Rest Defence Retention Invariant below.
 
 ### Players to Join Attack
 
-`Players to Join Attack` ($J$) designates up to 3 starting outfielders to push into the opposition penalty area during attacking set pieces (corners, wide free kicks) and maximum attacking mentality (full red attack level). Each entry identifies the outfielder by both `Slot` and `Player ID`; the invariant below is evaluated on Slots.
+`Players to Join Attack` ($J$) designates up to 3 starting outfielders to push into the opposition penalty area during attacking set pieces (corners, wide free kicks) and maximum attacking mentality (Level 4 / `Full Red`, only under Section III's runtime condition). Each entry identifies the outfielder by both `Slot` and `Player ID`; the invariant below is evaluated on Slots.
 
 * **Candidate Pool:** Selected strictly from starting outfielders (Slots 1–10).
 
 * **Advanced-Instruction Independence:** Eligibility is independent of Advanced Instruction assignments. Evaluate attacking-set-piece and maximum-mentality retention through the Retention Invariant, separately from each instruction's documented effects and conditions. Advanced Instructions add no exclusion criteria to this selection (Section I, item 7).
 
-* **Rest Defence Retention Invariant (Hard Constraint):** When selecting outfielders who are also members of `Retained Protector Slots`, the number of protectors remaining back must never fall below `Minimum Retained`:
+* **Rest Defence Retention Invariant (Hard Constraint):** When selecting outfielders who are also members of `Retained Protector Slots`, the number of unselected protectors must be at least `Minimum Retained`, and the combined-support audit above must confirm sufficient actual retention under the applicable conditions:
 
   \(|J \cap \text{Retained Protector Slots}| \le |\text{Retained Protector Slots}| - \text{Minimum Retained}\)
 
-  *(Example: If `Retained Protector Slots` has 4 members and `Minimum Retained` is 2, at most $4 - 2 = 2$ of those protectors may join the attack, guaranteeing that at least 2 protectors stay back at depth).*
+  *(Example: If `Retained Protector Slots` has 4 members and `Minimum Retained` is 2, at most $4 - 2 = 2$ of those protectors may join the attack, leaving at least 2 unselected protectors; the combined-support audit must still confirm actual retention).*
 
 * **Tactical Prioritization:** Prioritize deeper outfielders (`CB`, physical `DMF`, or tall full-backs) who possess top aerial and physical attributes (**Height**, **Physical Contact**, **Jump**, **Header**, and `Heading` skill), strictly subject to the Retention Invariant above. (Note: Forwards and wingers already position inside the box by default on offensive set pieces).
 
@@ -402,7 +433,7 @@ The tactical layers coexist. Each supplies a defined part of the configuration o
 
 | Layer                                                    | Tactical role                                                                                                          | Engine timing                                               | Application lever                                              |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------- |
-| Phase Grid (`Normal`, `With Ball`, `Without Ball`)       | Phase-specific structural anchor, line spacing, support geometry, and configured coverage                              | Continuous phase reference                                  | Assign Row 0–9 and Lane                                        |
+| Phase Grid (`Normal`, `With Ball`, `Without Ball`)       | Phase-specific structural anchor, line spacing, support geometry, and configured coverage                              | Continuous phase reference                                  | Assign a state-legal Row and Lane (Section IV)                  |
 | Position + Playing Style                                 | Configured tactical role plus the documented autonomous movement tendency when the carried style is compatible         | Continuous dynamic play                                     | Assign Position; resolve activation through PLAYER_GLOSSARY §1 |
 | Player Skills, COM Playing Styles, Abilities, and Traits | Individual execution capability, documented skill effects, AI-controlled tendencies, and fixed profile characteristics | Continuous dynamic play or the documented applicable action | Player selection and role matching                             |
 | Basic Instructions                                       | Team-wide configured tendencies                                                                                        | Continuous dynamic play within their documented scope       | Calibrate 12 settings and sliders                              |
@@ -434,6 +465,7 @@ Apply this commitment discipline within each call using its available data. Tran
 Step 1 — States + Rest Defence Contract (co-determined)
   For Normal, With Ball, and Without Ball, iterate strictly through fixed Slots 0 to 10 in numerical order, assigning each Slot's Position and Grid together within the editable Step-1 candidate. Never sort array output by pitch lines.
   Position establishes the configured tactical role and Playing-Style activation; Grid establishes the state-specific structural anchor.
+  Keep Slot 0 at GK and independently choose any Row 0–9 and any legal Lane in each state. Outfield bounds are Rows 1–9 in Normal, Rows 6–9 in With Ball, and Rows 1–4 in Without Ball (Section IV).
   While fixing With Ball, designate the rear structure as Retained Protector Slots and set Minimum Retained from the preset's Risk Budget (Section VIII); the With Ball anchors and Tactical Duties of those Slots must honor the committed contract.
   Apply the State Structure Checks of Section IV to each state's configured anchors.
   Before commitment, compare feasible alternatives under the lookahead rule above and verify a legal completion of Steps 2–6 within the available instruction capacity and all inherited requirements.
@@ -441,14 +473,14 @@ Step 1 — States + Rest Defence Contract (co-determined)
 Step 2 — Autonomous-behavior audit
   Resolve the active Playing Style separately in each state from Position compatibility.
   A compatible carried style is active; an incompatible carried style is dormant; a None dossier has no active Playing Style.
-  Assess the resulting behavior together with Grid anchors, execution profile, and the remaining applicable layers.
+  Assess the resulting behavior together with Grid anchors, execution profile, and the remaining applicable layers, applying the CB baseline and Full Red scope of Section III.
       ↓
 Step 3 — Basic Instructions
   Calibrate the twelve settings (Section V) to the committed Step-1 structure and preset Risk Budget.
   Compare feasible alternatives under the lookahead rule above and retain a legal completion of Steps 4–6 before committing.
       ↓
 Step 4 — Advanced Instructions (2 + 2)
-  Evaluate each candidate instruction through its documented targets, behavior, conditions, and interaction with the committed configuration (Sections VI and IX).
+  Evaluate only catalogue-valid instructions through their documented targets, behavior, conditions, and interaction with the committed configuration, including the CB-specific limits (Sections VI and IX).
   Apply the common contribution threshold and combination-level arbitration of Section VI within each family's two-slot limit.
   Select a jointly compatible combination and assign Blank to every unneeded slot.
   The resulting configuration must satisfy all committed hard requirements, including the Rest Defence Contract.

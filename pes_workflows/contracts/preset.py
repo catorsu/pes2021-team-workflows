@@ -9,6 +9,7 @@ from types import MappingProxyType
 from typing import Any
 
 from pes_workflows.domain.advanced_instructions import AdvancedInstruction
+from pes_workflows.domain.formation_grid import grid_row_bounds
 from pes_workflows.domain.vocabulary import POSITION_CODES
 
 from .constants import (
@@ -95,22 +96,19 @@ class PresetPlan:
         }
 
 
-def _grid_assignment(value: Any, artifact: str, path: str, slot: int) -> str:
+def _grid_assignment(
+    value: Any, artifact: str, path: str, slot: int, state_name: str
+) -> str:
     grid = _expect_object(value, artifact, path)
     _expect_ordered_keys(grid, ("Row", "Lane"), artifact, path)
     row = _expect_int(grid["Row"], artifact, _path(path, "Row"))
     lane = _expect_enum(grid["Lane"], GRID_LANES, artifact, _path(path, "Lane"))
-    if slot == 0:
-        if row != 0 or lane != "C_Center":
-            raise ArtifactDomainError(
-                artifact,
-                path,
-                'Slot 0 Grid must be exactly {"Row":0,"Lane":"C_Center"}',
-            )
-        return "GK_Anchor"
-    if not 1 <= row <= 9:
-        raise ArtifactSchemaError(
-            artifact, _path(path, "Row"), "outfield Row must be between 1 and 9"
+    lower, upper = grid_row_bounds(slot, state_name)
+    if not lower <= row <= upper:
+        raise ArtifactDomainError(
+            artifact,
+            _path(path, "Row"),
+            f"{state_name} Slot {slot} Row must be between {lower} and {upper}",
         )
     return f"Row {row} - {lane}"
 
@@ -248,7 +246,12 @@ def validate_preset_plan(
                 raise ArtifactDomainError(
                     artifact, _path(path, "Position"), "outfield slots cannot use GK"
                 )
-            grid = _grid_assignment(row["Grid"], artifact, _path(path, "Grid"), slot)
+            # Structure checks 1–3 depend on the duties' tactical explanations;
+            # do not invent symmetry, line-count or distance thresholds. Check 4
+            # has exact Row bounds and is enforced here and at compilation.
+            grid = _grid_assignment(
+                row["Grid"], artifact, _path(path, "Grid"), slot, state_name
+            )
             _expect_string(row["Tactical Duty"], artifact, _path(path, "Tactical Duty"))
             parsed_rows.append(StateRow(slot, position, grid))
         states[state_name] = tuple(parsed_rows)

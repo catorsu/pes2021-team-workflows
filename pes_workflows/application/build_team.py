@@ -369,9 +369,9 @@ class MatchPlanRunner:
         bench_frozen = [xi_lock.to_model_dict()] + [
             frozen_presets[name].to_model_dict() for name in active_preset_names
         ]
-        # Coverage Gaps compares each substitute against the starter holding the
-        # source duty, so the extract carries every dossier: the eleven starters
-        # in Slot order, then the non-starters
+        # Ranking compares each non-starter against the frozen starting duties,
+        # so the extract carries all dossiers: starters in Slot order followed
+        # by non-starters. The response contains only ranked Player IDs.
         starter_ids = {item.player_id for item in xi_lock.starting_xi}
         squad_ids = locked_ids + [
             player_id
