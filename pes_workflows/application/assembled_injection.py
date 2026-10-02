@@ -62,7 +62,6 @@ def execute_assembled_injection(
     roster_path: Path,
     formations_path: Path,
     players_path: Path | None,
-    dry_run: bool,
     csv_lock: Any,
     logger: logging.Logger,
     preset_mode: str = "multi",
@@ -115,7 +114,6 @@ def execute_assembled_injection(
                 reason=f"{label}_file_missing"
                 if isinstance(error, FileNotFoundError)
                 else f"{label}_file_inaccessible",
-                dry_run=dry_run,
                 csv_modified=False,
                 roster_path=str(roster_path),
                 formations_path=str(formations_path),
@@ -131,7 +129,6 @@ def execute_assembled_injection(
         stage=STAGE_COMPILE,
         preset_mode=preset_mode,
         team_id=team_id,
-        dry_run=dry_run,
         step_idx=step_idx,
     )
     compile_started_at = time.monotonic()
@@ -151,7 +148,6 @@ def execute_assembled_injection(
             reason="semantic_precompile_rejected",
             preset_mode=preset_mode,
             team_id=team_id,
-            dry_run=dry_run,
             csv_modified=False,
             error_type=type(err).__name__,
             # SemanticGridError text is English by contract. Carried under
@@ -176,7 +172,6 @@ def execute_assembled_injection(
             reason="exception",
             preset_mode=preset_mode,
             team_id=team_id,
-            dry_run=dry_run,
             csv_modified=False,
             error_type=type(err).__name__,
             detail=str(err),
@@ -217,7 +212,6 @@ def execute_assembled_injection(
         team=output_name,
         stage=STAGE_INJECT,
         formations_path=str(formations_path),
-        dry_run=dry_run,
     )
     with csv_lock:
         logger.info(
@@ -231,7 +225,6 @@ def execute_assembled_injection(
             roster_path=str(roster_path),
             formations_path=str(formations_path),
             players_path=str(players_path) if players_path is not None else None,
-            dry_run=dry_run,
             team_id=team_id,
             preset_mode=preset_mode,
         )
@@ -241,7 +234,6 @@ def execute_assembled_injection(
                 rosters_csv=roster_path,
                 formations_csv=formations_path,
                 compiled=compiled,
-                dry_run=dry_run,
                 player_stats=source_identity.get("player_stats"),
                 players_csv=players_path,
                 preset_mode=preset_mode,
@@ -254,7 +246,6 @@ def execute_assembled_injection(
                 team=output_name,
                 stage=STAGE_INJECT,
                 reason="exception",
-                dry_run=dry_run,
                 csv_modified=False,
                 roster_path=str(roster_path),
                 formations_path=str(formations_path),
@@ -276,7 +267,6 @@ def execute_assembled_injection(
             team=output_name,
             stage=STAGE_INJECT,
             reason="engine_rejected",
-            dry_run=dry_run,
             csv_modified=False,
             roster_path=str(roster_path),
             formations_path=str(formations_path),
@@ -287,21 +277,14 @@ def execute_assembled_injection(
             RuntimeError(error_message), stage=STAGE_INJECT, csv_modified=False
         )
 
-    if dry_run:
-        logger.info(
-            f"[{team_name}] 🧪 Dry-run validation succeeded; "
-            f"{formations_path} was not modified."
-        )
-    else:
-        logger.info(f"[{team_name}] 🎉 {formations_path} updated successfully!")
+    logger.info(f"[{team_name}] 🎉 {formations_path} updated successfully!")
     emit_event(
         observer,
         INJECTION_COMPLETED,
         team=output_name,
         stage=STAGE_INJECT,
-        outcome="validated_dry_run" if dry_run else "injected",
-        dry_run=dry_run,
-        csv_modified=not dry_run,
+        outcome="injected",
+        csv_modified=True,
         formations_path=str(formations_path),
         semantic_plan_path=str(config_dump_path),
         team_id=team_id,

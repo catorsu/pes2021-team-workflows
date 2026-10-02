@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import csv
 import os
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+
+from pes_workflows.storage.semicolon import read_semicolon_csv
 
 
 def validate_csv_file(path: Path, *, writable: bool = False) -> None:
@@ -37,8 +38,8 @@ def validate_csv_target(path: Path) -> None:
 
 
 def rows(path: Path) -> list[dict[str, str]]:
-    with path.open(encoding="utf-8-sig", newline="") as f:
-        return list(csv.DictReader(f, delimiter=";"))
+    _, _, parsed_rows = read_semicolon_csv(path, ())
+    return parsed_rows
 
 
 def attribute_mismatches(

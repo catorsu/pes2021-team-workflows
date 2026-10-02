@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from pes_workflows.domain.csv_schema import STARTER_COUNT
+from pes_workflows.domain.vocabulary import POSITION_IDS
+
 from .errors import SemanticGridError
 from .geometry import (
     GK_ANCHOR_LABEL,
@@ -19,8 +22,6 @@ from .geometry import (
 from .mappings import (
     _GRID_RE,
     _STATE_ENTRY_KEY_LOOKUP,
-    POSITION_NAME_TO_CODE,
-    STARTER_COUNT,
     STATE_KEYS,
     STATE_NAMES,
     TACTIC_KEYS,
@@ -32,11 +33,11 @@ from .schema import _canon_keys, _rekey_states
 def _parse_position(raw: object, where: str) -> tuple[str, str]:
     token = str(raw).strip()
     upper = token.upper()
-    if upper in POSITION_NAME_TO_CODE:
-        return POSITION_NAME_TO_CODE[upper], upper
+    if upper in POSITION_IDS:
+        return POSITION_IDS[upper], upper
     raise SemanticGridError(
         f"{where}: unknown semantic position {raw!r}. Legal positions: "
-        + ", ".join(POSITION_NAME_TO_CODE)
+        + ", ".join(POSITION_IDS)
         + "."
     )
 

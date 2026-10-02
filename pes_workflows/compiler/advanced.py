@@ -4,9 +4,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from pes_workflows.domain.advanced_instructions import AdvancedInstruction
+from pes_workflows.domain.csv_schema import FORMATION_ROSTER_SIZE
 
 from .errors import SemanticGridError
-from .mappings import FORMATION_ROSTER_SIZE
 
 __all__ = ["TargetedInstruction", "resolve_targeted_instructions"]
 

@@ -45,7 +45,8 @@ def parse_single_json_artifact(text: str, artifact: str = "Artifact") -> dict[st
 
 
 def canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, indent=2)
+    """Serialize readable Unicode JSON, rejecting non-standard NaN/Infinity values."""
+    return json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False)
 
 
 def _path(parent: str, child: Any) -> str:

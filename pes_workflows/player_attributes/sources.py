@@ -24,7 +24,6 @@ _PLAYERS_COLUMNS: tuple[str, ...] = (
     "Country",
     "Country2",
 )
-_MEMBERSHIP_COLUMNS = MEMBERSHIP_COLUMNS
 _TEAM_DIMENSIONS: Mapping[str, tuple[str, str, str]] = MappingProxyType(
     {
         "club": ("Id Club", "Club", "Club"),
@@ -427,7 +426,7 @@ def _affiliation_index(
 
 def _build_source_snapshot(players_csv: Path, memberships_csv: Path) -> _SourceSnapshot:
     players_raw, player_rows = _read_csv_snapshot(players_csv, _PLAYERS_COLUMNS)
-    _, membership_rows = _read_csv_snapshot(memberships_csv, _MEMBERSHIP_COLUMNS)
+    _, membership_rows = _read_csv_snapshot(memberships_csv, MEMBERSHIP_COLUMNS)
     teams_by_id: dict[tuple[str, str], list[_CsvRow]] = {}
     teams_by_name: dict[tuple[str, str], list[_CsvRow]] = {}
     memberships_by_player: dict[str, list[_CsvRow]] = {}
@@ -493,7 +492,7 @@ def list_attribute_teams(
     if team_id is not None or team_name is not None:
         if team_id is not None and team_name is not None:
             raise ValueError("Provide exactly one selector: team_name or team_id.")
-        _, membership_rows = _read_csv_snapshot(memberships_csv, _MEMBERSHIP_COLUMNS)
+        _, membership_rows = _read_csv_snapshot(memberships_csv, MEMBERSHIP_COLUMNS)
         candidates = {
             TeamIdentity(entry.cells[name_column], kind, entry.cells[id_column])
             for entry in membership_rows
@@ -510,7 +509,7 @@ def list_attribute_teams(
             )
         return tuple(candidates)
     _, player_rows = _read_csv_snapshot(players_csv, _PLAYERS_COLUMNS)
-    _, membership_rows = _read_csv_snapshot(memberships_csv, _MEMBERSHIP_COLUMNS)
+    _, membership_rows = _read_csv_snapshot(memberships_csv, MEMBERSHIP_COLUMNS)
     _players_index(player_rows, players_csv)
     members: dict[TeamIdentity, set[str]] = {}
     identities: dict[str, TeamIdentity] = {}

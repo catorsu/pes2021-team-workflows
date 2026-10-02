@@ -6,6 +6,9 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from pes_workflows.domain.csv_schema import STARTER_COUNT
+from pes_workflows.domain.vocabulary import POSITION_IDS
+
 from .errors import SemanticGridError
 from .geometry import GK_ANCHOR_LABEL, N_ROWS
 from .mappings import (
@@ -16,14 +19,12 @@ from .mappings import (
     _BASIC_SETTING_SPECS,
     _DEFENDING_ADVANCED_ENUMS,
     _GRID_RE,
+    _PLAYER_REF_KEY_LOOKUP,
     _PRESET_SECTION_KEY_LOOKUP,
     _SLIDER_SETTINGS,
-    _SQUAD_ENTRY_KEY_LOOKUP,
     _STATE_ALIASES,
     _TACTIC_ALIASES,
     GLOBAL_JOIN_ATTACK_COLUMNS,
-    POSITION_NAME_TO_CODE,
-    STARTER_COUNT,
     STATE_KEYS,
     STATE_NAMES,
     TACTIC_KEYS,
@@ -187,7 +188,7 @@ def _strict_validate_semantic_plan_shape(config: dict[str, Any]) -> None:
                     raise SemanticGridError(
                         f"{row_where}.Slot must be the integer {slot}."
                     )
-                if item["Position"] not in POSITION_NAME_TO_CODE:
+                if item["Position"] not in POSITION_IDS:
                     raise SemanticGridError(f"{row_where}.Position is not canonical.")
                 grid = item["Grid Assignment"]
                 if slot == 0:
@@ -272,8 +273,8 @@ def _compile_squad(top: dict[str, Any]) -> tuple[list[str], list[str]]:
     ids, names = [], []
     for i, entry in enumerate(squad_raw):
         where = f"Squad entry {i + 1}"
-        values = _canon_keys(entry, _SQUAD_ENTRY_KEY_LOOKUP, where)
-        missing = [key for key in _SQUAD_ENTRY_KEY_LOOKUP.values() if key not in values]
+        values = _canon_keys(entry, _PLAYER_REF_KEY_LOOKUP, where)
+        missing = [key for key in _PLAYER_REF_KEY_LOOKUP.values() if key not in values]
         if missing:
             raise SemanticGridError(
                 f"{where}: missing field(s): " + ", ".join(missing) + "."

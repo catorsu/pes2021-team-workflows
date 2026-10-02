@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -57,6 +58,70 @@ def basic_instructions() -> dict[str, Any]:
         "Defensive Line": 5,
         "Compactness": 7,
         "Numbers in Defence": "Medium",
+    }
+
+
+def _compiler_state() -> list[dict[str, Any]]:
+    """Repeated cells exercise the compiler's deterministic collision handling."""
+    lanes = (
+        "L_Wing",
+        "L_Half",
+        "L_Center",
+        "C_Center",
+        "R_Center",
+        "R_Half",
+        "R_Wing",
+    )
+    rows = [{"Slot": 0, "Position": "GK", "Grid Assignment": "GK_Anchor"}]
+    for slot in range(1, 11):
+        rows.append(
+            {
+                "Slot": slot,
+                "Position": "CB",
+                "Grid Assignment": f"Row 3 - {lanes[(slot - 1) % len(lanes)]}",
+            }
+        )
+    return rows
+
+
+def compiler_plan() -> dict[str, Any]:
+    """Build a saved semantic plan, with editor labels rather than model fields."""
+    basic = basic_instructions()
+    basic.update(
+        {
+            "Support Range": "Level 5",
+            "Defensive Style": "All-out Defence",
+            "Pressuring": "Conservative",
+            "Defensive Line": "Level 5",
+            "Compactness": "Level 5",
+        }
+    )
+    advanced = {
+        slot: {"Instruction": "Blank", "Designated Player": None}
+        for slot in ("Attacking 1", "Attacking 2", "Defending 1", "Defending 2")
+    }
+    preset = {
+        "Auto Offside Trap": "Off",
+        "Players to Join Attack": [],
+        "Basic Instructions": basic,
+        "Advanced Instructions": advanced,
+        "States": {
+            "Normal": _compiler_state(),
+            "With Ball": _compiler_state(),
+            "Without Ball": _compiler_state(),
+        },
+    }
+    return {
+        "Team ID": "1",
+        "Squad": [
+            {"Player ID": str(slot + 1), "Player": f"Player {slot + 1}"}
+            for slot in range(11)
+        ],
+        "Presets": {
+            "Main": copy.deepcopy(preset),
+            "Defensive": copy.deepcopy(preset),
+            "Custom": copy.deepcopy(preset),
+        },
     }
 
 

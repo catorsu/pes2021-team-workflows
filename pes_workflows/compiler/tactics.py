@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pes_workflows.config import GlobalAutoOptions
+from pes_workflows.domain.csv_schema import STARTER_COUNT
 
 from .advanced import TargetedInstruction
 from .errors import SemanticGridError
@@ -26,7 +27,6 @@ from .mappings import (
     FORCED_GLOBAL_COLUMNS,
     GLOBAL_AUTO_COLUMNS,
     GLOBAL_JOIN_ATTACK_COLUMNS,
-    STARTER_COUNT,
     STATE_NAMES,
     TACTIC_KEYS,
     TACTIC_NAMES,

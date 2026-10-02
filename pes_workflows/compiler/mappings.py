@@ -3,20 +3,8 @@
 import re
 
 from pes_workflows.domain.advanced_instructions import AdvancedInstruction
-from pes_workflows.domain.csv_schema import (
-    EMPTY_ROSTER_IDS as EMPTY_ROSTER_IDS,
-)
-from pes_workflows.domain.csv_schema import (
-    FORMATION_ROSTER_SIZE as FORMATION_ROSTER_SIZE,
-)
-from pes_workflows.domain.csv_schema import (
-    STARTER_COUNT as STARTER_COUNT,
-)
-from pes_workflows.domain.vocabulary import POSITION_IDS
 
 from .geometry import LANE_ORDER, N_ROWS
-
-POSITION_NAME_TO_CODE = {name: str(code) for name, code in POSITION_IDS.items()}
 
 TACTIC_KEYS = ["S1", "S2", "S3"]
 STATE_KEYS = ["F1", "F2", "F3"]
@@ -167,7 +155,7 @@ _PRESET_SECTION_KEY_LOOKUP = {
     _norm("Advanced Instructions"): "Advanced Instructions",
     _norm("States"): "States",
 }
-_SQUAD_ENTRY_KEY_LOOKUP = {
+_PLAYER_REF_KEY_LOOKUP = {
     _norm("Player ID"): "Player ID",
     _norm("Player"): "Player",
 }
@@ -180,4 +168,3 @@ _ADVANCED_ENTRY_KEY_LOOKUP = {
     _norm("Instruction"): "Instruction",
     _norm("Designated Player"): "Designated Player",
 }
-_PLAYER_REF_KEY_LOOKUP = dict(_SQUAD_ENTRY_KEY_LOOKUP)

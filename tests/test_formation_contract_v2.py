@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import itertools
 import unittest
-from typing import Any
 from unittest import mock
 
 from pes_workflows.compiler.compile import compile_semantic_game_plan
@@ -33,80 +32,12 @@ from pes_workflows.compiler.geometry import (  # noqa: E402
 from pes_workflows.compiler.mappings import TACTIC_KEYS  # noqa: E402
 from pes_workflows.contracts.assembly import assemble_semantic_game_plan  # noqa: E402
 from pes_workflows.contracts.errors import ArtifactDomainError  # noqa: E402
-
-
-def _basic_instructions() -> dict[str, Any]:
-    return {
-        "Attacking Style": "Possession Game",
-        "Build Up": "Short-pass",
-        "Attacking Area": "Center",
-        "Positioning": "Maintain Formation",
-        "Support Range": "Level 5",
-        "Numbers in Attack": "Medium",
-        "Defensive Style": "All-out Defence",
-        "Containment Area": "Center",
-        "Pressuring": "Conservative",
-        "Defensive Line": "Level 5",
-        "Compactness": "Level 5",
-        "Numbers in Defence": "Medium",
-    }
-
-
-def _state() -> list[dict[str, Any]]:
-    lanes = (
-        "L_Wing",
-        "L_Half",
-        "L_Center",
-        "C_Center",
-        "R_Center",
-        "R_Half",
-        "R_Wing",
-    )
-    rows = [{"Slot": 0, "Position": "GK", "Grid Assignment": "GK_Anchor"}]
-    for slot in range(1, 11):
-        rows.append(
-            {
-                "Slot": slot,
-                "Position": "CB",
-                "Grid Assignment": f"Row 3 - {lanes[(slot - 1) % len(lanes)]}",
-            }
-        )
-    return rows
-
-
-def _plan() -> dict[str, Any]:
-    advanced = {
-        slot: {"Instruction": "Blank", "Designated Player": None}
-        for slot in ("Attacking 1", "Attacking 2", "Defending 1", "Defending 2")
-    }
-    preset = {
-        "Auto Offside Trap": "Off",
-        "Players to Join Attack": [],
-        "Basic Instructions": _basic_instructions(),
-        "Advanced Instructions": advanced,
-        "States": {
-            "Normal": _state(),
-            "With Ball": _state(),
-            "Without Ball": _state(),
-        },
-    }
-    return {
-        "Team ID": "1",
-        "Squad": [
-            {"Player ID": str(slot + 1), "Player": f"Player {slot + 1}"}
-            for slot in range(11)
-        ],
-        "Presets": {
-            "Main": copy.deepcopy(preset),
-            "Defensive": copy.deepcopy(preset),
-            "Custom": copy.deepcopy(preset),
-        },
-    }
+from tests.match_fixtures import compiler_plan
 
 
 class ContractV2CompilerTests(unittest.TestCase):
     def test_strict_canonical_plan_compiles(self) -> None:
-        compiled = compile_semantic_game_plan(_plan(), strict=True)
+        compiled = compile_semantic_game_plan(compiler_plan(), strict=True)
         self.assertEqual(compiled["team_id"], "1")
         self.assertEqual(compiled["matchday_count"], 11)
         self.assertEqual(compiled["flat_columns"]["Header1"], "255")
@@ -119,7 +50,7 @@ class ContractV2CompilerTests(unittest.TestCase):
         )
 
     def test_single_mode_mirrors_main(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["Presets"]["Defensive"]["Basic Instructions"]["Support Range"] = "Level 2"
         plan["Presets"]["Defensive"]["Auto Offside Trap"] = "On"
         plan["Presets"]["Custom"]["States"]["Normal"][1]["Grid Assignment"] = (
@@ -161,7 +92,7 @@ class ContractV2CompilerTests(unittest.TestCase):
         ):
             with self.subTest(mode=mode, values=(substitutions, att_def, switch)):
                 flat = compile_semantic_game_plan(
-                    _plan(),
+                    compiler_plan(),
                     strict=True,
                     preset_mode=mode,
                     auto_substitutions=substitutions,
@@ -174,7 +105,9 @@ class ContractV2CompilerTests(unittest.TestCase):
 
     def test_omitted_global_auto_options_keep_legacy_defaults(self) -> None:
         for mode, switch in (("single", "0"), ("multi", "1")):
-            flat = compile_semantic_game_plan(_plan(), preset_mode=mode)["flat_columns"]
+            flat = compile_semantic_game_plan(compiler_plan(), preset_mode=mode)[
+                "flat_columns"
+            ]
             self.assertEqual(flat["AutoSubstitutions"], "2")
             self.assertEqual(flat["AutoChangeAttDef"], "0")
             self.assertEqual(flat["SwitchTactics"], switch)
@@ -190,10 +123,10 @@ class ContractV2CompilerTests(unittest.TestCase):
                     self.subTest(key=key, value=value),
                     self.assertRaisesRegex(SemanticGridError, key),
                 ):
-                    compile_semantic_game_plan(_plan(), **{key: value})
+                    compile_semantic_game_plan(compiler_plan(), **{key: value})
 
     def test_all_modes_compile_main_offside_trap_into_global_column(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["Presets"]["Main"]["Auto Offside Trap"] = "On"
 
         default_multi = compile_semantic_game_plan(plan, strict=True)
@@ -217,10 +150,10 @@ class ContractV2CompilerTests(unittest.TestCase):
         with self.assertRaisesRegex(
             SemanticGridError, "preset_mode must be exactly 'multi' or 'single'"
         ):
-            compile_semantic_game_plan(_plan(), preset_mode="switch_off")
+            compile_semantic_game_plan(compiler_plan(), preset_mode="switch_off")
 
     def test_single_mode_assembly_expands_only_main_without_aliasing(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         xi_lock = mock.Mock()
         xi_lock.compiler_refs.return_value = copy.deepcopy(plan["Squad"])
         bench = mock.Mock()
@@ -262,19 +195,19 @@ class ContractV2CompilerTests(unittest.TestCase):
             )
 
     def test_a_non_canonical_alias_is_tolerated_only_outside_strict_mode(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["team id"] = plan.pop("Team ID")
         self.assertEqual(compile_semantic_game_plan(plan)["team_id"], "1")
         with self.assertRaisesRegex(SemanticGridError, "non-canonical"):
             compile_semantic_game_plan(plan, strict=True)
 
     def test_non_canonical_global_and_preset_settings_are_rejected(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["Players to Join Attack"] = []
         with self.assertRaisesRegex(SemanticGridError, "unexpected/non-canonical"):
             compile_semantic_game_plan(plan, strict=True)
 
-        plan = _plan()
+        plan = compiler_plan()
         main = plan["Presets"]["Main"]
         main["Offside Trap"] = main.pop("Auto Offside Trap")
         with self.assertRaisesRegex(SemanticGridError, "unexpected/non-canonical"):
@@ -283,7 +216,7 @@ class ContractV2CompilerTests(unittest.TestCase):
     def test_join_attack_is_independent_and_accepts_outfielders_in_each_preset(
         self,
     ) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["Presets"]["Main"]["Players to Join Attack"] = [
             {"Player ID": "2", "Player": "Player 2"}
         ]
@@ -304,7 +237,7 @@ class ContractV2CompilerTests(unittest.TestCase):
         )
 
     def test_join_attack_rejects_the_goalkeeper(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         plan["Presets"]["Custom"]["Players to Join Attack"] = [
             {"Player ID": "1", "Player": "Player 1"}
         ]
@@ -316,7 +249,7 @@ class ContractV2CompilerTests(unittest.TestCase):
             compile_semantic_game_plan(plan, strict=True)
 
     def test_counter_target_accepts_midfielder_but_not_the_goalkeeper(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         main = plan["Presets"]["Main"]
         main["States"]["Normal"][1]["Position"] = "AMF"
         main["States"]["With Ball"][1]["Position"] = "AMF"
@@ -343,7 +276,7 @@ class ContractV2CompilerTests(unittest.TestCase):
             compile_semantic_game_plan(plan, strict=True)
 
     def test_rows_one_through_nine_span_the_documented_pitch_depth(self) -> None:
-        plan = _plan()
+        plan = compiler_plan()
         main_normal = plan["Presets"]["Main"]["States"]["Normal"]
         for slot, row in enumerate(range(1, 10), start=1):
             main_normal[slot]["Grid Assignment"] = f"Row {row} - C_Center"
@@ -468,7 +401,7 @@ class ContractV2CompilerTests(unittest.TestCase):
     def test_row_ten_is_rejected_in_strict_and_tolerant_compilation(self) -> None:
         for strict in (False, True):
             with self.subTest(strict=strict):
-                plan = _plan()
+                plan = compiler_plan()
                 plan["Presets"]["Main"]["States"]["Normal"][1]["Grid Assignment"] = (
                     "Row 10 - C_Center"
                 )

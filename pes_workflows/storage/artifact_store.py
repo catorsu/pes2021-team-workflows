@@ -2,18 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from pes_workflows.contracts.json_codec import canonical_json
 from pes_workflows.storage.atomic import write_text_atomic
-
-
-def slugify(text: str) -> str:
-    text = re.sub(r"[^\w\s\u4e00-\u9fff-]", "", text)
-    return re.sub(r"[\s-]+", "_", text).strip("_")[:40]
+from pes_workflows.storage.filenames import slugify
 
 
 def write_artifact_files(*, team_output_dir: Path, record: Mapping[str, Any]) -> None:

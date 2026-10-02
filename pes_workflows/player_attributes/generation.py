@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import re
 import time
 import traceback
 import uuid
@@ -49,6 +48,7 @@ from pes_workflows.reporting.player_attributes import (
     render_player_attribute_team_markdown,
 )
 from pes_workflows.storage.atomic import stable_json_sha256, write_text_atomic
+from pes_workflows.storage.filenames import slugify
 from pes_workflows.storage.run_layout import (
     CONVERSATION_HISTORY_NAME,
     SYSTEM_PROMPT_NAME,
@@ -375,17 +375,6 @@ def request_player_abilities(
     )
 
 
-_TEAM_SLUG_MAX_CHARS = 32
-
-
-def _team_slug(team_name: str) -> str:
-    """A filesystem-safe, bounded run-directory component for one team."""
-
-    slug = re.sub(r"[^\w\s-]", "", team_name, flags=re.UNICODE)
-    slug = re.sub(r"[\s-]+", "_", slug).strip("_").lower()
-    return slug[:_TEAM_SLUG_MAX_CHARS] or "team"
-
-
 def _prepare_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     probe = path / f".player_attributes_probe_{uuid.uuid4().hex}"
@@ -413,7 +402,6 @@ class PlayerAttributeRunner:
         output_base_dir: Path,
         model: str = Config.DEFAULT_MODEL,
         prompt_builder: PlayerAttributePromptBuilder | None = None,
-        dry_run: bool = False,
         llm_adapter: BaseLLMAdapter,
         observer: BuildObserver = NULL_OBSERVER,
     ) -> None:
@@ -423,7 +411,6 @@ class PlayerAttributeRunner:
         self.prompt_builder: PlayerAttributePromptBuilder = (
             prompt_builder or PlayerAttributePromptBuilder()
         )
-        self.dry_run: bool = dry_run
         self._observer: BuildObserver = observer
 
     def run(
@@ -436,12 +423,10 @@ class PlayerAttributeRunner:
         observer = self._observer
         run_started_at = time.monotonic()
         logger.info(
-            "[%s] Player Attributes generation started: %d players, "
-            "model=%s, dry_run=%s",
+            "[%s] Player Attributes generation started: %d players, model=%s",
             team.name,
             len(targets),
             self.model,
-            self.dry_run,
         )
         try:
             return self._run(
@@ -458,7 +443,6 @@ class PlayerAttributeRunner:
                 team=team.name,
                 team_id=team.team_id,
                 reason="exception",
-                dry_run=self.dry_run,
                 csv_modified=False,
                 error_type=type(err).__name__,
                 error_message=str(err),
@@ -488,7 +472,7 @@ class PlayerAttributeRunner:
         source_sha256 = preflight_player_injection(
             players_csv=players_csv,
             target_ids=(target.player_id for target in targets),
-            require_commit=not self.dry_run,
+            require_commit=True,
         )
         bound_digests = {
             target.source_players_sha256
@@ -503,7 +487,8 @@ class PlayerAttributeRunner:
             )
 
         team_dir = self.output_base_dir / (
-            f"{_team_slug(team.name)}__{team.kind.lower()}_{team.team_id}"
+            f"{slugify(team.name, max_length=32, lowercase=True, fallback='team')}"
+            f"__{team.kind.lower()}_{team.team_id}"
         )
         run_dir = team_dir / new_run_id()
         _prepare_directory(run_dir)
@@ -539,7 +524,6 @@ class PlayerAttributeRunner:
             team_id=team.team_id,
             team_kind=team.kind,
             model=self.model,
-            dry_run=self.dry_run,
             player_count=len(targets),
             player_ids=[target.player_id for target in targets],
             run_dir=str(run_dir),
@@ -655,21 +639,18 @@ class PlayerAttributeRunner:
             team=team.name,
             stage=STAGE_INJECT,
             players_csv=str(players_csv),
-            dry_run=self.dry_run,
             target_count=len(targets),
             expected_players_sha256=source_sha256,
         )
         logger.info(
-            "[%s] %s player attributes for %s",
+            "[%s] Applying player attributes for %s",
             team.name,
-            "Validating without database writes" if self.dry_run else "Applying",
             players_csv,
         )
         try:
             injection = inject_player_attributes(
                 players_csv=players_csv,
                 team=accepted_team,
-                dry_run=self.dry_run,
                 expected_players_sha256=source_sha256,
             )
         except BaseException as injection_error:
@@ -679,7 +660,6 @@ class PlayerAttributeRunner:
                 ATTRIBUTES_INJECTION_FAILED,
                 team=team.name,
                 stage=STAGE_INJECT,
-                dry_run=self.dry_run,
                 csv_modified=False,
                 players_csv=str(players_csv),
                 manifest_status="injection_failed",
@@ -714,7 +694,7 @@ class PlayerAttributeRunner:
                 )
             raise
 
-        manifest["status"] = "validated" if self.dry_run else "injected"
+        manifest["status"] = "injected"
         manifest["players_csv_result_sha256"] = injection.players_sha256_after
         emit_event(
             observer,
@@ -722,19 +702,14 @@ class PlayerAttributeRunner:
             team=team.name,
             stage=STAGE_INJECT,
             outcome=manifest["status"],
-            dry_run=self.dry_run,
-            csv_modified=not self.dry_run,
+            csv_modified=True,
             modified_count=injection.modified_count,
             players_sha256_before=injection.players_sha256_before,
             players_sha256_after=injection.players_sha256_after,
         )
         manifest_finalized = True
         manifest_error: str | None = None
-        unfinalized_warning_state = (
-            "injected_manifest_unfinalized"
-            if not self.dry_run
-            else "validated_manifest_unfinalized"
-        )
+        unfinalized_warning_state = "injected_manifest_unfinalized"
         try:
             write_text_atomic(manifest_path, canonical_json(manifest) + "\n")
         except OSError as error:
@@ -754,7 +729,7 @@ class PlayerAttributeRunner:
                 status_attempted=manifest["status"],
                 error_type="OSError",
                 error_message=str(error),
-                players_csv_written=not self.dry_run,
+                players_csv_written=True,
                 warning_state=unfinalized_warning_state,
                 severity="warning",
             )
@@ -769,9 +744,8 @@ class PlayerAttributeRunner:
             )
 
         logger.info(
-            "[%s] %s; %d players, manifest finalized=%s (%.1fs)",
+            "[%s] Applied to database; %d players, manifest finalized=%s (%.1fs)",
             team.name,
-            "Generated (not applied)" if self.dry_run else "Applied to database",
             len(targets),
             manifest_finalized,
             time.monotonic() - run_started_at,
@@ -786,8 +760,7 @@ class PlayerAttributeRunner:
             ),
             warning_state=None if manifest_finalized else unfinalized_warning_state,
             manifest_finalized=manifest_finalized,
-            dry_run=self.dry_run,
-            csv_modified=not self.dry_run,
+            csv_modified=True,
             run_dir=str(run_dir),
             manifest_path=str(manifest_path),
             config_path=str(config_path),

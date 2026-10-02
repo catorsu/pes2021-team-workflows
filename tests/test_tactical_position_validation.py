@@ -8,8 +8,12 @@ from pes_workflows.compiler.errors import SemanticGridError
 from pes_workflows.contracts.errors import ArtifactDomainError
 from pes_workflows.contracts.preset import validate_preset_plan
 from pes_workflows.contracts.strategy import validate_starting_xi_lock
-from tests.match_fixtures import preset_raw, source_identity, strategy_raw
-from tests.test_formation_contract_v2 import _plan
+from tests.match_fixtures import (
+    compiler_plan,
+    preset_raw,
+    source_identity,
+    strategy_raw,
+)
 
 
 class TacticalPositionValidationTests(unittest.TestCase):
@@ -57,7 +61,7 @@ class TacticalPositionValidationTests(unittest.TestCase):
             with self.subTest(
                 preset=preset, state=state, strict=strict, position=position
             ):
-                plan = _plan()
+                plan = compiler_plan()
                 selected = plan["Presets"][preset]
                 for rows in selected["States"].values():
                     rows[1]["Position"] = "AMF"
@@ -92,7 +96,7 @@ class TacticalPositionValidationTests(unittest.TestCase):
                     "Designated Slot": 7,
                 }
                 preset = validate_preset_plan(raw, "Main", xi)
-                plan = _plan()
+                plan = compiler_plan()
                 plan["Presets"]["Main"] = preset.to_compiler_dict(xi, source)
                 compiled = compile_semantic_game_plan(
                     plan, strict=True, preset_mode="single"

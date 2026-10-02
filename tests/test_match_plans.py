@@ -22,20 +22,28 @@ from unittest import mock
 from pes_workflows import batch_generate_match_plans as batch
 from pes_workflows import checkpoint_io, claude_cli
 from pes_workflows import generate_match_plan as single
+from pes_workflows.application import build_team
+from pes_workflows.compiler.compile import compile_semantic_game_plan
+from pes_workflows.compiler.roles import _derive_routine_role_ids
 from pes_workflows.config import parse_workflow_args
+from pes_workflows.contracts.assembly import assemble_semantic_game_plan
 from pes_workflows.contracts.bench import BenchDecision, validate_bench_decision
 from pes_workflows.contracts.errors import ArtifactDomainError, ArtifactSchemaError
+from pes_workflows.contracts.preset import validate_preset_plan
 from pes_workflows.contracts.strategy import validate_starting_xi_lock
 from pes_workflows.domain.csv_schema import FORMATION_ROSTER_SIZE
 from pes_workflows.players.generator import (
     PlayerRecordsGenerationError,
     PlayerRecordsGenerator,
 )
+from pes_workflows.reporting.match_plan import render_match_plan_report
+from pes_workflows.storage.run_layout import MATCH_PLAN_REPORT_NAME
 from tests.attribute_fixtures import make_targets, write_attribute_targets_csv
 from tests.match_fixtures import (
     FakeClient,
     SingleModeFakeClient,
     fixture_player_records,
+    preset_raw,
     source_identity,
     strategy_raw,
 )
@@ -140,7 +148,7 @@ class ScopedMatchPreflightTests(unittest.TestCase):
                         str(self.root),
                         "--preset-mode",
                         "single",
-                        "--dry-run",
+                        "--force",
                         *selectors,
                     ],
                 ),
@@ -300,8 +308,10 @@ class MatchPlanScriptsTests(unittest.TestCase):
             "Formations.csv",
         ):
             (self.root / filename).write_text("placeholder")
-        self.registry = self.root / single.COMPLETION_REGISTRY_NAME
-        self.batch_registry = self.root / batch.COMPLETION_REGISTRY_NAME
+        _, self.registry = single.match_plan_paths(self.root, "single")
+        _, self.batch_registry = single.match_plan_paths(
+            self.root, "single", workflow="match_plans"
+        )
         self.team = SimpleNamespace(
             team_name="China*", team_id="77", kind="National", output_name="China"
         )
@@ -320,9 +330,9 @@ class MatchPlanScriptsTests(unittest.TestCase):
             f'rosters_csv="{self.root / "Rosters.csv"}"\n'
             f'formations_csv="{self.root / "Formations.csv"}"\n'
             '[match_plan]\npreset_mode="single"\nteams=["77"]\n'
-            'output_dir="single-reports"\ndry_run=true\n'
+            'output_dir="single-reports"\n'
             '[match_plans]\npreset_mode="multi"\nteams=["77"]\n'
-            'output_dir="batch-reports"\ndry_run=true\n'
+            'output_dir="batch-reports"\n'
         )
         for module, output in ((single, "single-reports"), (batch, "batch-reports")):
             with (
@@ -333,15 +343,15 @@ class MatchPlanScriptsTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()),
             ):
                 generator.return_value.teams = {"77": self.team}
-                runner.return_value.dry_run = True
                 self.assertEqual(module.main(), 0)
                 self.assertEqual(generator.call_args.kwargs["team_queries"], ["77"])
                 self.assertEqual(
                     runner.call_args.kwargs["output_base_dir"], self.root / output
                 )
-                self.assertTrue(runner.call_args.kwargs["dry_run"])
                 runner.return_value.run_team.assert_called_once()
                 self.assertFalse(self.registry.exists())
+                registry = next((self.root / output).glob("completed_teams*.txt"))
+                self.assertEqual(single.read_completed_teams(registry), {"77"})
 
     def test_entry_points_select_engine_and_preserve_defaults(self) -> None:
         for module in (single, batch):
@@ -425,9 +435,9 @@ class MatchPlanScriptsTests(unittest.TestCase):
                             str(self.root / "Formations.csv"),
                             "--output-dir",
                             str(self.root),
-                            "--dry-run",
                             "--delay",
                             "0",
+                            "--force",
                             *engine_args,
                         ],
                     ),
@@ -582,7 +592,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
                         contextlib.redirect_stdout(io.StringIO()),
                     ):
                         generator.return_value.teams = {"77": self.team}
-                        runner.return_value.dry_run = False
                         module.main()
                         if attempt == 0:
                             kwargs = runner.call_args.kwargs
@@ -608,7 +617,7 @@ class MatchPlanScriptsTests(unittest.TestCase):
                     self.assertEqual(report["preset_mode"], mode)
                     self.assertEqual(report["completion_registry"], str(registry))
 
-    def test_multi_batch_check_only_dry_run_and_failure_do_not_complete(self) -> None:
+    def test_multi_batch_check_only_and_failure_do_not_complete(self) -> None:
         (self.root / "Formations.csv").write_text("unchanged")
         output, registry = single.match_plan_paths(
             self.root, "multi", workflow="match_plans"
@@ -617,7 +626,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
             args = ("--preset-mode", "multi", "--engine", engine)
             _, _, runner = self.invoke_batch(*args, "--check-only")
             runner.return_value.run_team.assert_not_called()
-            self.invoke_batch(*args, "--dry-run")
             result, _, _ = self.invoke_batch(*args, fail=True)
             self.assertEqual(result, 1)
             self.assertFalse(registry.exists())
@@ -653,13 +661,12 @@ class MatchPlanScriptsTests(unittest.TestCase):
         )
         generated.return_value.generate.assert_called_once_with("88")
 
-    def test_codex_batch_preflight_dry_run_failure_and_resume(self) -> None:
+    def test_codex_batch_preflight_failure_and_resume(self) -> None:
         (self.root / "Formations.csv").write_text("unchanged")
         args = ("--engine", "codex", "--fast")
         with mock.patch.object(claude_cli.subprocess, "Popen") as popen:
             _, _, runner = self.invoke_batch(*args, "--check-only")
             runner.return_value.run_team.assert_not_called()
-            self.invoke_batch(*args, "--dry-run")
             self.assertFalse(self.batch_registry.exists())
             result, _, _ = self.invoke_batch(*args, fail=True)
             self.assertEqual(result, 1)
@@ -739,7 +746,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
                     players_path=None,
                     teams_players_path=None,
                     preset_mode=mode,
-                    dry_run=True,
                 )
                 runner._execute_assembled_injection = mock.Mock()
                 with mock.patch.object(
@@ -791,10 +797,7 @@ class MatchPlanScriptsTests(unittest.TestCase):
             self.assertEqual(artifacts[mode][0], artifacts[mode][1])
 
     def test_only_successful_apply_is_registered(self) -> None:
-        runner = mock.Mock(dry_run=True)
-        single.run_and_record(runner, object(), self.team, self.registry)
-        self.assertFalse(self.registry.exists())
-        runner.dry_run = False
+        runner = mock.Mock()
         runner.run_team.side_effect = RuntimeError("atomic replace failed")
         with self.assertRaises(RuntimeError):
             single.run_and_record(runner, object(), self.team, self.registry)
@@ -970,7 +973,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
                     generator.return_value.generate.side_effect = (
                         single.UnbuildableSquadError("no goalkeeper")
                     )
-                runner.return_value.dry_run = "--dry-run" in args
                 if fail:
                     runner.return_value.run_team.side_effect = RuntimeError(
                         "commit failed"
@@ -1010,11 +1012,10 @@ class MatchPlanScriptsTests(unittest.TestCase):
         runner.return_value.run_team.assert_called_once()
         self.assertEqual(len(self.batch_registry.read_text().splitlines()), 1)
 
-    def test_check_only_dry_run_and_failure_leave_registry_empty(self) -> None:
+    def test_check_only_and_failure_leave_registry_empty(self) -> None:
         (self.root / "Formations.csv").write_text("unchanged")
         _, _, runner = self.invoke_batch("--check-only")
         runner.return_value.run_team.assert_not_called()
-        self.invoke_batch("--dry-run")
         self.assertFalse(self.batch_registry.exists())
         result, _, _ = self.invoke_batch(fail=True)
         self.assertEqual(result, 1)
@@ -1054,7 +1055,8 @@ class MatchPlanScriptsTests(unittest.TestCase):
             runner.assert_not_called()
 
     def test_real_runner_isolates_team_artifacts_and_preserves_attempts(self) -> None:
-        output = self.root / single.OUTPUT_DIRECTORY_NAME
+        with mock.patch.object(single.Path, "cwd", return_value=self.root):
+            output, _ = single.match_plan_paths(None, "single")
         client = SingleModeFakeClient()
         create = client.completions.create
 
@@ -1084,7 +1086,6 @@ class MatchPlanScriptsTests(unittest.TestCase):
             players_path=None,
             teams_players_path=None,
             preset_mode="single",
-            dry_run=True,
         )
         captured = []
 
@@ -1294,6 +1295,255 @@ class MatchPlanScriptsTests(unittest.TestCase):
             )
 
 
+class MatchPlanReportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+
+    def runner(self, mode: str, output: Path) -> Any:
+        client = SingleModeFakeClient() if mode == "single" else FakeClient()
+
+        def generate(messages: Any, *args: Any, **kwargs: Any) -> tuple[str, str]:
+            raw = json.loads(
+                client.completions.create(messages=messages).choices[0].message.content
+            )
+            if raw["Artifact"] == "BenchDecision":
+                raw = compact_bench("12")
+            elif raw.get("Preset") in ("Defensive", "Custom"):
+                joiner = "3" if raw["Preset"] == "Defensive" else "4"
+                raw = preset_raw(raw["Preset"], (joiner,))
+            return json.dumps(raw), "private reasoning must never be persisted"
+
+        return single.MatchPlanRunner(
+            llm_adapter=SimpleNamespace(generate=generate),
+            loader=single.TemplateLoader(
+                single.PROJECT_ROOT / "prompts/match_plan", preset_mode=mode
+            ),
+            output_base_dir=output,
+            roster_path=self.root / "Rosters.csv",
+            formations_path=self.root / "Formations.csv",
+            players_path=None,
+            teams_players_path=None,
+            preset_mode=mode,
+        )
+
+    def test_report_published_before_injection_and_retained_in_both_modes(self) -> None:
+        for mode, fail in itertools.product(("single", "multi"), (True, False)):
+            with self.subTest(mode=mode, fail=fail):
+                output = self.root / f"{mode}-{fail}"
+                runner = self.runner(mode, output)
+
+                def inject(**kwargs: Any) -> None:
+                    run_dir = kwargs["team_output_dir"]
+                    report = (run_dir / MATCH_PLAN_REPORT_NAME).read_text(
+                        encoding="utf-8"
+                    )
+                    manifest = json.loads((run_dir / "run_manifest.json").read_text())
+                    self.assertEqual(
+                        manifest["artifacts"]["match_plan_report"],
+                        MATCH_PLAN_REPORT_NAME,
+                    )
+                    self.assertEqual(manifest["status"], "generated")
+                    for heading in (
+                        "Locked Starting XI",
+                        "Global Auto Options",
+                        "Normal",
+                        "With Ball",
+                        "Without Ball",
+                        "Basic Instructions",
+                        "Advanced Instructions",
+                        "Rest Defence Contract",
+                        "Players to Join Attack",
+                        "Mechanisms",
+                        "Binding Constraints",
+                        "Set-Piece Roles and Captain",
+                        "Prioritized Substitute Bench",
+                    ):
+                        self.assertIn(heading, report)
+                    self.assertIn("| 0 | 1 | Player 1 |", report)
+                    self.assertIn("| 1 | 12 | Player 12 |", report)
+                    self.assertIn(
+                        "The retained central unit protects direct transitions.", report
+                    )
+                    self.assertIn("Perform the assigned GK function.", report)
+                    self.assertNotIn("private reasoning", report)
+                    self.assertEqual(
+                        report.count("#### With Ball"), 1 if mode == "single" else 3
+                    )
+                    if mode == "single":
+                        self.assertIn("copied identically", report)
+                    else:
+                        self.assertIn("### Defensive", report)
+                        self.assertIn("### Custom", report)
+                        self.assertIn("overrides in-game", report)
+                    compiled = compile_semantic_game_plan(
+                        kwargs["semantic_plan"], strict=True, preset_mode=mode
+                    )
+                    roles = _derive_routine_role_ids(
+                        compiled["squad_ids"],
+                        compiled["main_normal_entries"],
+                        join_attack_player_ids={
+                            row["Player ID"]
+                            for rows in compiled["join_attack_settings"].values()
+                            for row in rows
+                        },
+                        player_stats=kwargs["source_identity"]["player_stats"],
+                    )
+                    for key, label in (
+                        ("Captain", "Captain"),
+                        ("LongFK", "Long free kick"),
+                        ("Penalty", "Penalty"),
+                    ):
+                        self.assertIn(
+                            f"| {label} | Player {roles[key]} (ID: {roles[key]}) |",
+                            report,
+                        )
+                    if fail:
+                        raise RuntimeError("injection failed")
+
+                runner._execute_assembled_injection = inject
+                if fail:
+                    with self.assertRaisesRegex(RuntimeError, "injection failed"):
+                        runner.run_team(fixture_player_records())
+                else:
+                    runner.run_team(fixture_player_records())
+                manifest_path = next(output.glob("fixture/run_*/run_manifest.json"))
+                manifest = json.loads(manifest_path.read_text())
+                self.assertEqual(
+                    manifest["status"],
+                    "injection_failed" if fail else "injected",
+                )
+                self.assertTrue(
+                    (
+                        manifest_path.parent
+                        / manifest["artifacts"]["match_plan_report"]
+                    ).is_file()
+                )
+
+    def test_report_write_failure_prevents_injection(self) -> None:
+        runner = self.runner("single", self.root)
+        runner._execute_assembled_injection = mock.Mock()
+        with (
+            mock.patch.object(
+                build_team, "write_text_atomic", side_effect=OSError("disk full")
+            ),
+            self.assertRaisesRegex(OSError, "disk full"),
+        ):
+            runner.run_team(fixture_player_records())
+        runner._execute_assembled_injection.assert_not_called()
+        manifest_path = next(self.root.glob("fixture/run_*/run_manifest.json"))
+        manifest = json.loads(manifest_path.read_text())
+        self.assertEqual(manifest["status"], "failed")
+        self.assertNotIn("match_plan_report", manifest["artifacts"])
+        self.assertFalse((manifest_path.parent / MATCH_PLAN_REPORT_NAME).exists())
+
+    def test_both_commands_publish_reports_through_real_runner(self) -> None:
+        for module, mode in itertools.product((single, batch), ("single", "multi")):
+            with self.subTest(command=module.__name__, mode=mode):
+                output = self.root / f"{module.__name__}-{mode}"
+                output.mkdir()
+                argv = [
+                    "match",
+                    "--no-config",
+                    "--team",
+                    "77",
+                    "--preset-mode",
+                    mode,
+                    "--output-dir",
+                    str(output),
+                ]
+                for flag in ("players", "teams-players", "rosters", "formations"):
+                    path = self.root / f"{flag}.csv"
+                    path.write_text("placeholder")
+                    argv += [f"--{flag}-csv", str(path)]
+                runner = self.runner(mode, output)
+                team = SimpleNamespace(
+                    team_name="fixture",
+                    team_id="77",
+                    kind="National",
+                    output_name="fixture",
+                )
+                with (
+                    mock.patch.object(sys, "argv", argv),
+                    mock.patch.object(module, "PlayerRecordsGenerator") as generator,
+                    mock.patch.object(
+                        single,
+                        "create_match_plan_adapter",
+                        return_value=runner.llm_adapter,
+                    ),
+                    mock.patch.object(
+                        single.MatchPlanRunner, "_execute_assembled_injection"
+                    ),
+                    mock.patch.object(module, "configure_file_logging"),
+                    contextlib.redirect_stdout(io.StringIO()),
+                ):
+                    generator.return_value.teams = {"77": team}
+                    generator.return_value.generate.return_value = (
+                        fixture_player_records()
+                    )
+                    self.assertEqual(module.main(), 0)
+                report_path = next(output.glob("fixture/run_*/match_plan.md"))
+                self.assertIn(
+                    "Match Plan Report", report_path.read_text(encoding="utf-8")
+                )
+                registry = next(output.glob("completed_teams*.txt"))
+                self.assertEqual(single.read_completed_teams(registry), {"77"})
+
+    def test_renderer_preserves_decisions_order_and_escapes_markdown(self) -> None:
+        source = source_identity()
+        source["players"]["1"] = "守门员 | <b> & [name]\n# title"
+        source["players"]["13"] = "替补十三"
+        source["total_players"] = 13
+        xi = validate_starting_xi_lock(strategy_raw(), source)
+        raw = preset_raw("Main")
+        raw["Advanced Instructions"]["Attacking 1"] = {
+            "Instruction": "Defensive",
+            "Designated Slot": 3,
+        }
+        raw["Binding Constraints"] = ["Retain width | keep shape\n<script>"]
+        main = validate_preset_plan(raw, "Main", xi, preset_mode="single")
+        bench = validate_bench_decision(compact_bench("13", "12"), xi, source)
+        plan = assemble_semantic_game_plan(
+            source, xi, {"Main": main}, bench, preset_mode="single"
+        )
+        before = json.dumps(plan, ensure_ascii=False)
+        args = dict(
+            team_name="球队 | <script>",
+            semantic_plan=plan,
+            presets={"Main": main},
+            routine_role_ids=dict.fromkeys(
+                (
+                    "Captain",
+                    "ShortFK",
+                    "LongFK",
+                    "SecondKicker",
+                    "LeftCorner",
+                    "RightCorner",
+                    "Penalty",
+                ),
+                "1",
+            ),
+            global_auto_options={
+                "auto_substitutions": 3,
+                "auto_change_att_def": 1,
+                "auto_switch_preset_tactics": 0,
+            },
+            preset_mode="single",
+        )
+        report = render_match_plan_report(**args)
+        self.assertEqual(report, render_match_plan_report(**args))
+        self.assertEqual(json.dumps(plan, ensure_ascii=False), before)
+        self.assertIn("守门员 &#124; &lt;b&gt; &amp; \\[name\\] \\# title", report)
+        self.assertNotIn("<script>", report)
+        self.assertIn("| Attacking 1 | Defensive | Slot 3: Player 4 (ID: 4) |", report)
+        self.assertIn("Retain width &#124; keep shape &lt;script&gt;", report)
+        self.assertIn("| Automatic substitutions | 3 | Very Early |", report)
+        self.assertIn("| 1 | 13 | 替补十三 |\n| 2 | 12 | Player 12 |", report)
+        plan["Squad"] = plan["Squad"][:11]
+        self.assertIn("No substitutes", render_match_plan_report(**args))
+
+
 class ConfigurationTests(unittest.TestCase):
     def setUp(self) -> None:
         temporary = tempfile.TemporaryDirectory()
@@ -1308,7 +1558,7 @@ class ConfigurationTests(unittest.TestCase):
             f'formations_csv="{self.root / "tactics" / "plans.csv"}"\n'
             '[match_plan]\npreset_mode="single"\nscope="single"\nteams=["77"]\n'
             '[match_plans]\npreset_mode="multi"\nmodel="batch"\n'
-            'scope="multiple"\nteams=["77", "Other"]\ndry_run=true\nforce=true\n'
+            'scope="multiple"\nteams=["77", "Other"]\nforce=true\n'
             'output_dir="reports"\nattributes_completed_teams="completed.txt"\n'
         )
 
@@ -1472,7 +1722,6 @@ class ConfigurationTests(unittest.TestCase):
             "local-output",
             "--no-fast",
             "--no-force",
-            "--no-dry-run",
             "--preset-mode",
             "single",
             "--team",
@@ -1483,7 +1732,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(
             (args.model, args.delay, args.preset_mode), ("cli", 0, "single")
         )
-        self.assertEqual((args.fast, args.force, args.dry_run), (False, False, False))
+        self.assertEqual((args.fast, args.force), (False, False))
         self.assertEqual(args.players_csv, self.root / "override.csv")
         self.assertEqual(args.rosters_csv, self.root / "squads" / "selected.csv")
         self.assertEqual(args.output_dir, Path("local-output"))

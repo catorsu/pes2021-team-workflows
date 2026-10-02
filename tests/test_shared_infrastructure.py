@@ -553,6 +553,43 @@ class NativeCodexTests(unittest.TestCase):
 
 
 class StorageTests(unittest.TestCase):
+    def test_blocking_lock_waits_for_another_process_and_then_releases(self) -> None:
+        script = (
+            "import sys\n"
+            "from contextlib import ExitStack\n"
+            "from pathlib import Path\n"
+            "from pes_workflows.file_lock import acquire_lock\n"
+            "with ExitStack() as resources:\n"
+            "    print('waiting', flush=True)\n"
+            "    acquire_lock(resources, Path(sys.argv[1]), blocking=True)\n"
+            "    print('acquired', flush=True)\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "commit.lock"
+            contender = None
+            try:
+                with ExitStack() as owner:
+                    file_lock.acquire_lock(owner, path)
+                    contender = subprocess.Popen(
+                        [sys.executable, "-c", script, str(path)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    self.assertEqual(contender.stdout.readline(), "waiting\n")
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        contender.communicate(timeout=0.2)
+                output, error = contender.communicate(timeout=5)
+                self.assertEqual(contender.returncode, 0, error)
+                self.assertEqual(output, "acquired\n")
+                with ExitStack() as next_owner:
+                    file_lock.acquire_lock(next_owner, path)
+            finally:
+                if contender is not None:
+                    if contender.poll() is None:
+                        contender.kill()
+                    contender.communicate(timeout=5)
+
     def test_lock_contention_then_release_on_exception(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "batch.lock"

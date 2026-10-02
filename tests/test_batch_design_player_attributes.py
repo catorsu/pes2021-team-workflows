@@ -85,9 +85,7 @@ class BatchTests(unittest.TestCase):
         players_csv.write_text(players_csv.read_text() + team.name)
         self.runs.append(team.name)
         return SimpleNamespace(
-            injection=PlayerInjectionResult(
-                1, before, batch.digest(players_csv), False
-            ),
+            injection=PlayerInjectionResult(1, before, batch.digest(players_csv)),
             config_path=self.out / "config.json",
             manifest_path=self.out / "manifest.json",
             report_path=self.data / "Teams-Players.csv",

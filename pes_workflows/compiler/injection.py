@@ -7,13 +7,14 @@ from typing import Any
 
 import pandas as pd
 
+from pes_workflows.domain.csv_schema import FORMATION_ROSTER_SIZE
+
 from ..config import Config
 from ..storage.csv_store import _find_unique_team_row, _map_roster_indices
 from .advanced import resolve_targeted_instructions
 from .compile import compile_semantic_game_plan
 from .errors import SemanticGridError
 from .mappings import (
-    FORMATION_ROSTER_SIZE,
     GLOBAL_JOIN_ATTACK_COLUMNS,
     ROLE_COLUMN_ORDER,
 )
@@ -63,7 +64,6 @@ def _inject_compiled_formation(
     formations_csv: Path,
     compiled: Mapping[str, Any],
     *,
-    dry_run: bool = False,
     player_stats: Mapping[str, dict[str, Any]] | None = None,
     players_csv: Path | None,
     preset_mode: str = "multi",
@@ -194,25 +194,20 @@ def _inject_compiled_formation(
             "Auto Offside Trap and Players to Join Attack use Main's global CSV fields; "
             "adjust these two settings in-game for Defensive/Custom overrides."
         )
-    if dry_run:
-        report(
-            f"\n🧪 DRY RUN — validation and resolution succeeded; '{formations_csv}' was NOT modified."
+    temp_formations = formations_csv.with_name(formations_csv.name + ".tmp")
+    try:
+        for column, value in updates.items():
+            df_formations.at[form_idx, column] = str(value)
+        df_formations.to_csv(
+            temp_formations, sep=";", index=False, encoding="utf-8-sig"
         )
-    else:
-        temp_formations = formations_csv.with_name(formations_csv.name + ".tmp")
-        try:
-            for column, value in updates.items():
-                df_formations.at[form_idx, column] = str(value)
-            df_formations.to_csv(
-                temp_formations, sep=";", index=False, encoding="utf-8-sig"
-            )
-            os.replace(temp_formations, formations_csv)
-            report(
-                f"\n🎉 Done! All tactical parameters and coordinates have been directly overwritten to '{formations_csv}'."
-            )
-        finally:
-            if temp_formations.exists():
-                temp_formations.unlink()
+        os.replace(temp_formations, formations_csv)
+        report(
+            f"\n🎉 Done! All tactical parameters and coordinates have been directly overwritten to '{formations_csv}'."
+        )
+    finally:
+        if temp_formations.exists():
+            temp_formations.unlink()
 
     return True
 
@@ -222,7 +217,6 @@ def process_formation_data(
     formations_csv: Path,
     config: Mapping[str, Any],
     *,
-    dry_run: bool = False,
     strict: bool = False,
     auto_substitutions: int = Config.DEFAULT_AUTO_SUBSTITUTIONS,
     auto_change_att_def: int = Config.DEFAULT_AUTO_CHANGE_ATT_DEF,
@@ -232,7 +226,7 @@ def process_formation_data(
     preset_mode: str = "multi",
     report: Callable[[str], None] | None = None,
 ) -> bool:
-    """Compile and atomically replace the team's formation row unless dry_run.
+    """Compile and atomically replace the team's formation row.
 
     players_csv must explicitly name the attribute source or be None; missing
     attributes produce a warning and routine roles are chosen from default scores and formation positions.
@@ -255,7 +249,6 @@ def process_formation_data(
         rosters_csv,
         formations_csv,
         compiled,
-        dry_run=dry_run,
         player_stats=player_stats,
         players_csv=players_csv,
         preset_mode=preset_mode,

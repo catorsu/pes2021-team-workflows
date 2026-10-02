@@ -22,15 +22,30 @@ from pes_workflows.application.artifact_generation import request_artifact
 from pes_workflows.compiler import injection
 from pes_workflows.config import Config
 from pes_workflows.contracts.errors import ArtifactContractError, ArtifactDomainError
+from pes_workflows.contracts.json_codec import (
+    canonical_json,
+    parse_single_json_artifact,
+)
 from pes_workflows.contracts.preset import validate_preset_plan
 from pes_workflows.contracts.strategy import validate_starting_xi_lock
+from pes_workflows.csv_validation import rows as read_csv_rows
 from pes_workflows.player_attributes import sources
+from pes_workflows.player_attributes.contracts import (
+    merge_player_artifacts,
+    validate_player_abilities,
+    validate_player_profiles,
+)
 from pes_workflows.player_attributes.generation import _request_validated_artifact
 from pes_workflows.player_attributes.injection import (
     _read_players_csv,
     _required_columns,
 )
-from pes_workflows.player_attributes.sources import _read_csv_snapshot
+from pes_workflows.player_attributes.prompts import PlayerAttributePromptBuilder
+from pes_workflows.player_attributes.sources import (
+    PlayerDesignTarget,
+    TeamIdentity,
+    _read_csv_snapshot,
+)
 from pes_workflows.players.generator import (
     PlayerRecordsGenerationError,
     PlayerRecordsGenerator,
@@ -38,12 +53,22 @@ from pes_workflows.players.generator import (
     _read_semicolon_csv,
 )
 from pes_workflows.prompts.assets import read_prompt_bytes, read_prompt_text
+from pes_workflows.reporting.player_attributes import (
+    render_player_attribute_team_markdown,
+)
 from pes_workflows.storage.atomic import (
     stable_json_sha256,
     write_bytes_atomic,
     write_text_atomic,
 )
-from tests.attribute_fixtures import make_targets, write_attribute_targets_csv
+from pes_workflows.storage.csv_store import load_player_stats_from_csv
+from pes_workflows.storage.filenames import sanitize_path_component, slugify
+from tests.attribute_fixtures import (
+    abilities_artifact,
+    make_targets,
+    profiles_artifact,
+    write_attribute_targets_csv,
+)
 from tests.match_fixtures import preset_raw, source_identity, strategy_raw
 
 
@@ -123,6 +148,8 @@ class ConsolidatedInfrastructureTests(unittest.TestCase):
             lambda p: _read_semicolon_csv(p, ("Id", "Name")),
             lambda p: _read_csv_snapshot(p, ("Id", "Name")),
             _read_players_csv,
+            read_csv_rows,
+            lambda p: load_player_stats_from_csv(p, {"1"}),
         )
         fields = sorted(_required_columns() | {"Name"})
         values = ["1"] * len(fields)
@@ -159,9 +186,104 @@ class ConsolidatedInfrastructureTests(unittest.TestCase):
             path = Path(directory) / "Players.csv"
             path.write_bytes(original)
             raw, headers, rows, terminator = _read_players_csv(path)
+            dossier_raw, dossier_rows = _read_semicolon_csv(path, ("Id", "Name"))
+            snapshot_raw, snapshot_rows = _read_csv_snapshot(path, ("Id", "Name"))
         self.assertEqual(
             (raw, headers, rows, terminator), (original, fields, [row], "\r\n")
         )
+        self.assertEqual((dossier_raw, snapshot_raw), (original, original))
+        self.assertEqual(dossier_rows[0]["Name"], row["Name"].strip())
+        self.assertEqual(snapshot_rows[0].cells["Name"], row["Name"].strip())
+
+    def test_role_stats_retain_selection_defaults_and_original_cells(self) -> None:
+        content = (
+            "Id;Name;Foot;Height;Jump;Captaincy\r\n"
+            " 1 ;球员; True ; 188 ; 81 ; TRUE \r\n"
+            "2;Other;0;invalid;invalid;false\r\n"
+            "3;Ignored;1;199;99;True\r\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Players.csv"
+            path.write_bytes(content.encode("utf-8-sig"))
+            stats = load_player_stats_from_csv(path, {"1", "2"})
+            self.assertEqual(read_csv_rows(path)[0]["Id"], " 1 ")
+            self.assertEqual(read_csv_rows(path)[0]["Name"], "球员")
+        self.assertEqual(set(stats), {"1", "2"})
+        self.assertEqual(stats["1"]["foot"], "Left")
+        self.assertEqual(stats["1"]["height"], 188)
+        self.assertEqual(stats["1"]["skills"], {"Captaincy"})
+        self.assertEqual(stats["1"]["abilities"]["Jump"], 81)
+        self.assertEqual(stats["1"]["abilities"]["Finishing"], 50)
+        self.assertEqual(stats["2"]["foot"], "Right")
+        self.assertEqual(stats["2"]["height"], 180)
+        self.assertEqual(stats["2"]["skills"], set())
+        self.assertEqual(stats["2"]["abilities"]["Jump"], 50)
+
+    def test_filename_helpers_preserve_existing_workflow_naming(self) -> None:
+        for name, component, artifact_slug, team_slug in (
+            (
+                "  São Paulo-日本 FC  ",
+                "São Paulo-日本 FC",
+                "São_Paulo_日本_FC",
+                "são_paulo_日本_fc",
+            ),
+            ("A/B: C..", "A_B_ C", "AB_C", "ab_c"),
+            ("!!!", "!!!", "", "team"),
+            (".. ", "team", "", "team"),
+            ("T" * 45, "T" * 45, "T" * 40, "t" * 32),
+        ):
+            with self.subTest(name=name):
+                self.assertEqual(sanitize_path_component(name), component)
+                self.assertEqual(slugify(name), artifact_slug)
+                self.assertEqual(
+                    slugify(name, max_length=32, lowercase=True, fallback="team"),
+                    team_slug,
+                )
+
+    def test_canonical_json_round_trips_unicode_and_rejects_nonfinite_values(
+        self,
+    ) -> None:
+        value = {"Name": "球队", "Nested": [1, {"Rating": 70}]}
+        rendered = canonical_json(value)
+        self.assertIn("球队", rendered)
+        self.assertEqual(parse_single_json_artifact(rendered), value)
+        for invalid in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=invalid), self.assertRaises(ValueError):
+                canonical_json({"Nested": [invalid]})
+
+    def test_prompt_serialization_retains_profiles_validation_errors(self) -> None:
+        team = TeamIdentity("Fixture", "Club", "1")
+        targets = make_targets(1)
+        builder = PlayerAttributePromptBuilder()
+        for invalid in (float("nan"), float("inf"), float("-inf"), object()):
+            raw = profiles_artifact(team, targets)
+            raw["Players"][0]["Age"] = invalid
+            with (
+                self.subTest(value=invalid),
+                self.assertRaisesRegex(ValueError, "finite JSON-compatible values"),
+            ):
+                builder.build_abilities_call(team, targets, raw)
+
+    def test_attribute_report_escapes_names_and_keeps_position_order(self) -> None:
+        identity = TeamIdentity("球队 | <b> & [name]\n# title", "Club", "1")
+        targets = (PlayerDesignTarget("101", "Player *_[name]_*\n# <script> | &", 21),)
+        raw = profiles_artifact(identity, targets)
+        raw["Players"][0]["Player Skills"].append("Cut Behind & Turn")
+        profiles = validate_player_profiles(raw)
+        abilities = validate_player_abilities(
+            abilities_artifact(identity, targets), profiles=profiles
+        )
+        team = merge_player_artifacts(profiles, abilities, team_kind=identity.kind)
+        before = team.to_dict()
+        report = render_player_attribute_team_markdown(team)
+        self.assertEqual(team.to_dict(), before)
+        self.assertIn("球队 &#124; &lt;b&gt; &amp; \\[name\\] \\# title", report)
+        self.assertIn(
+            "Player \\*\\_\\[name\\]\\_\\* \\# &lt;script&gt; &#124; &amp;", report
+        )
+        self.assertNotIn("<script>", report)
+        self.assertIn("CB(2), DMF(1)", report)
+        self.assertIn("Cut Behind &amp; Turn, Interception, Captaincy", report)
 
     def test_both_team_resolvers_use_exact_names_before_aliases(self) -> None:
         generator = object.__new__(PlayerRecordsGenerator)

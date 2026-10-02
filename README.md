@@ -1,5 +1,7 @@
 # PES 2021 Team Workflows
 
+[简体中文](README.zh-CN.md)
+
 Standalone Python 3.11+ workflows for WSL and Linux. Copy this directory anywhere;
 it contains its own compiler, validators, roster readers, CSV writers, CLI
 adapters, prompts, and offline tests. Runtime dependencies are pandas and an
@@ -38,8 +40,8 @@ csv_paths=(
     --formations-csv /path/to/tactics/Formations.csv
 )
 
-# One team: validate and generate without changing Formations.csv.
-pes-match-plan "${csv_paths[@]}" --team 'My Club' --preset-mode single --dry-run
+# One team: generate, validate, and atomically inject a single-preset plan.
+pes-match-plan "${csv_paths[@]}" --team 'My Club' --preset-mode single
 
 # Generate and atomically inject a team’s match plan.
 pes-match-plan "${csv_paths[@]}" --team 77 --preset-mode multi
@@ -92,15 +94,15 @@ paths and `preset_mode`; attributes require only the players and membership path
 | Section | Supported settings |
 | --- | --- |
 | `[defaults]` | `players_csv`, `teams_players_csv`, `rosters_csv`, `formations_csv`, `model`, `effort`, `delay`, `fast`; match plans also inherit the Global Auto Options below |
-| `[match_plan]` | Shared settings plus `output_dir`, `engine`, `preset_mode`, `auto_substitutions`, `auto_change_att_def`, `auto_switch_preset_tactics`, `dry_run`, `force`, `attributes_completed_teams`, `scope`, `teams` |
+| `[match_plan]` | Shared settings plus `output_dir`, `engine`, `preset_mode`, `auto_substitutions`, `auto_change_att_def`, `auto_switch_preset_tactics`, `force`, `attributes_completed_teams`, `scope`, `teams` |
 | `[match_plans]` | All single-match settings plus `check_only` |
 | `[player_attributes]` | Shared settings plus `output_dir`, `check_only`, `max_teams`, `max_turns`, `scope`, `teams` |
 
 Keys use underscores; equivalent CLI flags use hyphens. Attribute `output_dir`
 maps to `--output` (also accepted as `--output-dir`). Attributes retain their
-Claude Code transport; `engine`, `preset_mode`, `dry_run`, and `force` apply to
+Claude Code transport; `engine`, `preset_mode`, and `force` apply to
 match plans. For offline attribute validation, use `check_only`.
-Booleans accept explicit CLI reversal: `--no-fast`, `--no-dry-run`,
+Booleans accept explicit CLI reversal: `--no-fast`,
 `--no-force`, and `--no-check-only` override configured `true` values wherever
 the corresponding flag is supported. Omit `model` and `effort` to use engine
 defaults; configured values remain in effect when overriding only `--engine`.
@@ -140,7 +142,7 @@ for example, `pes-match-plan --auto-substitutions 3 --auto-change-att-def 1
 --auto-switch-preset-tactics 1` overrides the configured team's three options.
 TOML values must be integers, not booleans, floats, or quoted numbers. Invalid
 types or values outside the listed ranges abort startup before model calls or
-CSV changes, including dry-run and check-only runs.
+CSV changes, including check-only runs.
 
 **Note:** In PES2021Editor-ejogc327, **Switch Preset Tactics** is mislabeled; it controls the in-game **Auto Switch Preset Tactics** setting. Set it to match the desired in-game auto-switch state.
 
@@ -180,7 +182,7 @@ targets. A CLI `--scope single`/`multiple` must include its CLI team selectors.
 
 ```bash
 pes-match-plan                         # configured team and options
-pes-match-plans --team 77 --team 'My Club' --no-dry-run
+pes-match-plans --team 77 --team 'My Club'
 pes-match-plans --scope all --check-only
 pes-player-attributes --config ./settings.toml --team 77 --team 'My Club'
 ```
@@ -197,7 +199,7 @@ Attributes require players and memberships. `Players.csv`, `Rosters.csv`,
 may have any name and live in a different directory. Paths are case-sensitive
 on Linux. Every required file is checked individually for existence, regular-file
 type, readability, and write access before model calls, including offline
-`--check-only` and match-plan `--dry-run`. Atomic write targets also require their
+`--check-only`. Atomic write targets also require their
 own parent directory to allow temporary files. No shared directory is inferred.
 The membership header is
 `Id;Name;Id Club;Club;Id National;National`. IDs are positive and globally unique
@@ -225,7 +227,8 @@ CSV attributes. Reports describe the saved design for their own run.
 bench decision; the three preset requests run independently after the XI freezes.
 The compiler resolves coordinates, roles, and editor enums locally. Rejected
 model artifacts receive a scoped correction; invalid plans never reach the CSV
-writer. Match-plan `--dry-run` generates and validates without committing.
+writer. Successful match-plan execution atomically injects the validated plan
+and records team completion.
 
 `--model`, `--effort`, and `--fast` configure the selected CLI transport.
 `--delay` controls request cooldown. Attribute calls allow web search
@@ -257,6 +260,35 @@ names resolve from the working directory. Match plans store logs, per-turn JSON,
 policy snapshots, run manifests, history, and the final injectable semantic JSON
 there. Use `--output-dir PATH` to relocate artifacts and run state. Keep the same
 output directory to resume; use separate output directories for different datasets.
+
+Both match-plan commands also publish a complete **Match Plan Report**:
+
+```text
+<output_dir>/<team>/run_<id>/
+├── match_plan.md
+├── run_manifest.json
+├── conversation_history.json
+├── 00_Final_System_Prompt.md
+├── Turn_<nn>_<title>.json
+└── semantic_game_plan_<team>.json
+```
+
+`match_plan.md` records the locked Starting XI, every active preset's fluid
+positions and tactical duties, basic and advanced instructions, rest defence,
+players joining attack, offside settings, mechanisms and constraints, captain
+and set-piece takers, Global Auto Options, and the prioritized substitute bench.
+Single mode documents Main's identical copies in Defensive and Custom. In multi
+mode, Main supplies the global offside/join-attack CSV fields; the report identifies
+Defensive/Custom overrides that require in-game adjustment. Role assignments use
+the same deterministic selector and player attributes as CSV injection.
+
+The UTF-8 report is published atomically after plan assembly and before injection,
+and is referenced by `artifacts.match_plan_report` in
+`run_manifest.json` (relative to the run directory). A report write failure prevents
+injection and completion. A later injection failure retains the report for inspection;
+the manifest's status records the final outcome. Offline `--check-only` performs no
+tactical generation and produces no match-plan report. Previously completed teams
+are skipped as usual; use `--force` to generate a new run with a report.
 
 For existing match-plan runs, explicitly select the previous output directory
 and copy the old `completed_teams_<preset_mode>_match_plan.txt` to the corresponding
@@ -306,8 +338,9 @@ resume refuses to silently replay over the changed CSV.
 
 POSIX locks serialize writers sharing a database. Attribute verification replays
 committed artifacts against the backup and checks all CSV rows, including
-unmodeled cells. Per-turn Markdown pages, combined tactical presentations,
-formation display files, and copied runtime scripts are not generated.
+unmodeled cells. Match plans provide one consolidated Markdown report per run;
+per-turn Markdown pages, separate formation display files, and copied runtime
+scripts are not generated.
 
 ## Prompts and development
 

@@ -38,8 +38,6 @@ from pes_workflows.players.generator import (
 
 logger = logging.getLogger("Batch_Generate_Match_Plans")
 
-COMPLETION_REGISTRY_NAME = "completed_teams_match_plans_single.txt"
-
 
 def backup_formations_csv(formations_csv: Path, output_dir: Path) -> Path:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -175,7 +173,6 @@ def _main(resources: ExitStack) -> int:
                 "global_auto_options": {
                     key: getattr(args, key) for key in GLOBAL_AUTO_CHOICES
                 },
-                "dry_run": args.dry_run,
                 "formations_csv": str(formations_csv),
                 **{
                     key: str(path) for key, path in player_records_sources(args).items()
@@ -197,8 +194,7 @@ def _main(resources: ExitStack) -> int:
         logger.info("The queue is empty (all plans may already be complete); exiting.")
         return 1 if skipped_disqualified else 0
 
-    if not args.dry_run:
-        backup_formations_csv(formations_csv, output_dir)
+    backup_formations_csv(formations_csv, output_dir)
 
     # Phase 2: Sequential match-plan generation.
     succeeded = 0
@@ -236,8 +232,7 @@ def _main(resources: ExitStack) -> int:
     logger.info(
         f"Total queued: {len(queue)} | Succeeded: {succeeded} | Failed: {failed} | Total time: {elapsed_min} minutes"
     )
-    if not args.dry_run:
-        logger.info(f"💾 Formation and role data synchronized to: {formations_csv}")
+    logger.info(f"💾 Formation and role data synchronized to: {formations_csv}")
     logger.info("=" * 60)
     return 1 if failed or skipped_disqualified else 0
 

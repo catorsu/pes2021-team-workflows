@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import csv
-import fcntl
 import hashlib
 import io
 import json
 import os
 import re
 from collections.abc import Callable, Iterable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +22,7 @@ from pes_workflows.domain.vocabulary import (
     PLAYING_STYLE_IDS,
     POSITION_IDS,
 )
+from pes_workflows.file_lock import acquire_lock
 from pes_workflows.storage.atomic import write_bytes_atomic
 from pes_workflows.storage.semicolon import read_semicolon_csv
 
@@ -37,19 +37,15 @@ class PlayerInjectionResult:
     modified_count: int
     players_sha256_before: str
     players_sha256_after: str
-    dry_run: bool
 
 
 @contextmanager
 def _exclusive_commit_lock(players_csv: Path) -> Iterator[None]:
     """Serialize compare-and-replace commits across Linux processes."""
     lock_path = players_csv.with_name(f".{players_csv.name}.attributes.lock")
-    with lock_path.open("a") as stream:
-        fcntl.flock(stream, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(stream, fcntl.LOCK_UN)
+    with ExitStack() as resources:
+        acquire_lock(resources, lock_path, blocking=True)
+        yield
 
 
 def _required_columns() -> set[str]:
@@ -217,7 +213,6 @@ def inject_player_attributes(
     *,
     players_csv: Path,
     team: PlayerAttributeTeam,
-    dry_run: bool = False,
     expected_players_sha256: str | None = None,
     replace: Callable[[Path, Path], None] = os.replace,
 ) -> PlayerInjectionResult:
@@ -256,22 +251,20 @@ def inject_player_attributes(
 
     rendered_csv = _render_players_csv(fieldnames, rows, line_terminator)
     after_hash = hashlib.sha256(rendered_csv).hexdigest()
-    if not dry_run:
-        # The advisory lock serializes cooperating subsystem processes. The
-        # snapshot comparison is best-effort detection for other writers
-        # it does not make the replacement an OS-level compare-and-swap
-        with _exclusive_commit_lock(players_csv):
-            if players_csv.read_bytes() != original:
-                raise RuntimeError(
-                    f"{players_csv}: changed concurrently; refusing to overwrite newer data"
-                )
-            write_bytes_atomic(players_csv, rendered_csv, replace=replace)
+    # The advisory lock serializes cooperating subsystem processes. The
+    # snapshot comparison is best-effort detection for other writers
+    # it does not make the replacement an OS-level compare-and-swap
+    with _exclusive_commit_lock(players_csv):
+        if players_csv.read_bytes() != original:
+            raise RuntimeError(
+                f"{players_csv}: changed concurrently; refusing to overwrite newer data"
+            )
+        write_bytes_atomic(players_csv, rendered_csv, replace=replace)
 
     return PlayerInjectionResult(
         modified_count=modified_count,
         players_sha256_before=before_hash,
         players_sha256_after=after_hash,
-        dry_run=dry_run,
     )
 
 

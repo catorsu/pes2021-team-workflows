@@ -17,6 +17,7 @@ from pes_workflows.application.assembled_injection import (
     execute_assembled_injection,
     semantic_plan_filename,
 )
+from pes_workflows.compiler.roles import _derive_routine_role_ids
 from pes_workflows.config import Config, resolve_global_auto_options
 from pes_workflows.contracts.assembly import assemble_semantic_game_plan
 from pes_workflows.contracts.bench import validate_bench_decision
@@ -47,14 +48,15 @@ from pes_workflows.players.records import (
     scope_player_records,
 )
 from pes_workflows.prompts.loader import TemplateLoader
-from pes_workflows.storage.artifact_store import (
-    slugify,
-    write_artifact_files,
-)
-from pes_workflows.storage.atomic import stable_json_sha256
+from pes_workflows.reporting.match_plan import render_match_plan_report
+from pes_workflows.storage.artifact_store import write_artifact_files
+from pes_workflows.storage.atomic import stable_json_sha256, write_text_atomic
+from pes_workflows.storage.csv_store import load_player_stats_from_csv
+from pes_workflows.storage.filenames import slugify
 from pes_workflows.storage.run_layout import (
     CONVERSATION_HISTORY_NAME,
     MANIFEST_SCHEMA_VERSION,
+    MATCH_PLAN_REPORT_NAME,
     RUN_STATUS_FAILED,
     RUN_STATUS_GENERATED,
     RUN_STATUS_INJECTED,
@@ -97,7 +99,6 @@ class MatchPlanRunner:
         roster_path: Path,
         formations_path: Path,
         model: str = Config.DEFAULT_MODEL,
-        dry_run: bool = False,
         csv_lock: threading.Lock | None = None,
         preset_mode: str = Config.DEFAULT_PRESET_MODE,
         auto_substitutions: int = Config.DEFAULT_AUTO_SUBSTITUTIONS,
@@ -137,7 +138,6 @@ class MatchPlanRunner:
         self.teams_players_path: Path | None = teams_players_path
         self.model: str = model
         self.llm_adapter: BaseLLMAdapter = llm_adapter
-        self.dry_run: bool = dry_run
         self.preset_mode: str = preset_mode
         self.csv_lock: threading.Lock = csv_lock or threading.Lock()
         self._observer = observer
@@ -198,7 +198,6 @@ class MatchPlanRunner:
             artifact_count=total_turns,
             preset_names=list(active_preset_names),
             stages=list(MATCH_PLAN_STAGES),
-            dry_run=self.dry_run,
             user_id=user_id,
             output_dir=str(team_output_dir),
             run_id=run.run_id,
@@ -493,6 +492,38 @@ class MatchPlanRunner:
             preset_mode=self.preset_mode,
         )
 
+        # Use the same role selector and attribute snapshot as CSV injection.
+        # Resolve before publishing so the report contains actual player names.
+        if not source_identity.get("player_stats") and self.players_path is not None:
+            source_identity["player_stats"] = load_player_stats_from_csv(
+                self.players_path,
+                {row["Player ID"] for row in semantic_plan["Squad"]},
+            )
+        routine_role_ids = _derive_routine_role_ids(
+            [row["Player ID"] for row in semantic_plan["Squad"]],
+            [
+                {"pos_name": row["Position"]}
+                for row in semantic_plan["Presets"]["Main"]["States"]["Normal"]
+            ],
+            join_attack_player_ids={
+                row["Player ID"]
+                for name in active_preset_names
+                for row in semantic_plan["Presets"][name]["Players to Join Attack"]
+            },
+            player_stats=source_identity.get("player_stats"),
+        )
+        write_text_atomic(
+            team_output_dir / MATCH_PLAN_REPORT_NAME,
+            render_match_plan_report(
+                team_name=team_name,
+                semantic_plan=semantic_plan,
+                presets=frozen_presets,
+                routine_role_ids=routine_role_ids,
+                global_auto_options=self.global_auto_options,
+                preset_mode=self.preset_mode,
+            ),
+        )
+
         history_file_path = team_output_dir / CONVERSATION_HISTORY_NAME
         with open(history_file_path, "w", encoding="utf-8") as f:
             json.dump(history_records, f, ensure_ascii=False, indent=2)
@@ -525,7 +556,7 @@ class MatchPlanRunner:
             )
             raise
         run.finish(
-            RUN_STATUS_GENERATED if self.dry_run else RUN_STATUS_INJECTED,
+            RUN_STATUS_INJECTED,
             artifacts=self._manifest_injection_artifacts(team_name=output_name),
         )
 
@@ -544,7 +575,6 @@ class MatchPlanRunner:
             "model": self.model,
             "preset_mode": self.preset_mode,
             "global_auto_options": dict(self.global_auto_options),
-            "dry_run": bool(self.dry_run),
             "contract_schema_version": SCHEMA_VERSION,
             "source": {
                 "team_id": records.team_id,
@@ -580,6 +610,7 @@ class MatchPlanRunner:
                 for record in ordered_records
             ],
             "conversation_history": CONVERSATION_HISTORY_NAME,
+            "match_plan_report": MATCH_PLAN_REPORT_NAME,
         }
 
     def _manifest_injection_artifacts(self, *, team_name: str) -> dict[str, Any]:
@@ -697,7 +728,6 @@ class MatchPlanRunner:
             roster_path=self.roster_path,
             formations_path=self.formations_path,
             players_path=self.players_path,
-            dry_run=self.dry_run,
             csv_lock=self.csv_lock,
             logger=logger,
             preset_mode=self.preset_mode,

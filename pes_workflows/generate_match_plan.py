@@ -41,10 +41,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 logger = logging.getLogger("Generate_Match_Plan")
 
 
-OUTPUT_DIRECTORY_NAME = "outputs/match_plan"
-COMPLETION_REGISTRY_NAME = "completed_teams_match_plan_single.txt"
-
-
 def add_preset_mode_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--preset-mode",
@@ -145,8 +141,7 @@ def run_and_record(
     registry: Path,
 ) -> None:
     runner.run_team(records_doc)  # Raises on generation, validation or commit failure.
-    if not runner.dry_run:
-        append_completed_team(registry, team_rec)
+    append_completed_team(registry, team_rec)
 
 
 def configure_file_logging(output_dir: Path, resources: ExitStack) -> None:
@@ -203,12 +198,6 @@ def add_match_plan_arguments(parser: argparse.ArgumentParser) -> None:
         help="Enable fast mode for the selected engine",
     )
     parser.add_argument(
-        "--dry-run",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Dry-run mode (do not write to Formations.csv)",
-    )
-    parser.add_argument(
         "--force",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -251,7 +240,6 @@ def match_plan_runner_options(
         teams_players_path=sources["teams_players_csv"],
         model=args.model,
         preset_mode=args.preset_mode,
-        dry_run=args.dry_run,
         **{key: getattr(args, key) for key in GLOBAL_AUTO_CHOICES},
     )
 
@@ -329,12 +317,8 @@ def _main(resources: ExitStack) -> int:
     run_and_record(runner, records_doc, team_rec, registry)
 
     print("\n" + "=" * 70)
-    mode_text = "Dry-Run" if args.dry_run else "Apply"
-    print(
-        f"🎉 [{mode_text}] {args.preset_mode} match plan completed for {team_rec.team_name}!"
-    )
-    if not args.dry_run:
-        print(f"📝 Formations written atomically to: {formations_csv}")
+    print(f"🎉 {args.preset_mode} match plan completed for {team_rec.team_name}!")
+    print(f"📝 Formations written atomically to: {formations_csv}")
     print(f"📁 Detailed plans and audit records: {output_dir / team_rec.output_name}")
     print("=" * 70 + "\n")
 

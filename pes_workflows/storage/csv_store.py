@@ -2,21 +2,21 @@
 
 from __future__ import annotations
 
-import csv
 from collections.abc import Collection, Sequence
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from pes_workflows.domain.vocabulary import ABILITY_COLUMN_MAP, PLAYER_SKILL_COLUMNS
-
-from ..compiler.errors import SemanticGridError
-from ..compiler.mappings import (
+from pes_workflows.domain.csv_schema import (
     EMPTY_ROSTER_IDS,
     FORMATION_ROSTER_SIZE,
     STARTER_COUNT,
 )
+from pes_workflows.domain.vocabulary import ABILITY_COLUMN_MAP, PLAYER_SKILL_COLUMNS
+from pes_workflows.storage.semicolon import read_semicolon_csv
+
+from ..compiler.errors import SemanticGridError
 
 
 def _clean_csv_token(value: object) -> str:
@@ -132,26 +132,26 @@ def load_player_stats_from_csv(
 ) -> dict[str, dict[str, Any]]:
     """Read canonical role-selection inputs from the editor export."""
     stats: dict[str, dict[str, Any]] = {}
-    with players_csv_path.open(encoding="utf-8-sig", newline="") as stream:
-        for row in csv.DictReader(stream, delimiter=";"):
-            player_id = row["Id"].strip()
-            if player_id not in player_ids:
-                continue
-            abilities = {}
-            for name, column in ABILITY_COLUMN_MAP.items():
-                value = row.get(column, "").strip()
-                abilities[name] = int(value) if value.isdecimal() else 50
-            skills = set()
-            for name, column in PLAYER_SKILL_COLUMNS.items():
-                if row.get(column, "").strip().casefold() == "true":
-                    skills.add(name)
-            height = row.get("Height", "").strip()
-            stats[player_id] = {
-                "foot": "Left"
-                if row.get("Foot", "").strip().casefold() in {"1", "true"}
-                else "Right",
-                "height": int(height) if height.isdecimal() else 180,
-                "skills": skills,
-                "abilities": abilities,
-            }
+    _, _, rows = read_semicolon_csv(players_csv_path, ("Id",))
+    for row in rows:
+        player_id = row["Id"].strip()
+        if player_id not in player_ids:
+            continue
+        abilities = {}
+        for name, column in ABILITY_COLUMN_MAP.items():
+            value = row.get(column, "").strip()
+            abilities[name] = int(value) if value.isdecimal() else 50
+        skills = set()
+        for name, column in PLAYER_SKILL_COLUMNS.items():
+            if row.get(column, "").strip().casefold() == "true":
+                skills.add(name)
+        height = row.get("Height", "").strip()
+        stats[player_id] = {
+            "foot": "Left"
+            if row.get("Foot", "").strip().casefold() in {"1", "true"}
+            else "Right",
+            "height": int(height) if height.isdecimal() else 180,
+            "skills": skills,
+            "abilities": abilities,
+        }
     return stats

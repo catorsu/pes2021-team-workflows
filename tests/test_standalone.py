@@ -22,11 +22,12 @@ from pes_workflows import generate_match_plan as single
 from pes_workflows.application import assembled_injection
 from pes_workflows.compiler import injection as formation_injection
 from pes_workflows.compiler.compile import compile_semantic_game_plan
-from pes_workflows.compiler.mappings import FORMATION_ROSTER_SIZE, ROLE_COLUMN_ORDER
+from pes_workflows.compiler.mappings import ROLE_COLUMN_ORDER
 from pes_workflows.contracts.assembly import assemble_semantic_game_plan
 from pes_workflows.contracts.bench import validate_bench_decision
 from pes_workflows.contracts.preset import validate_preset_plan
 from pes_workflows.contracts.strategy import validate_starting_xi_lock
+from pes_workflows.domain.csv_schema import FORMATION_ROSTER_SIZE
 from pes_workflows.domain.vocabulary import POSITION_IDS
 from pes_workflows.player_attributes.sources import PlayerDesignTarget
 from tests.attribute_fixtures import write_attribute_targets_csv
@@ -179,7 +180,7 @@ class StandaloneTests(unittest.TestCase):
                 ):
                     self.assertIn(option, result.stdout)
 
-    def test_custom_club_match_plan_commits_and_dry_run_preserves_database(
+    def test_custom_club_match_plan_commits_and_records_report(
         self,
     ) -> None:
         identity = source_identity()
@@ -247,83 +248,76 @@ class StandaloneTests(unittest.TestCase):
             write_csv(formations, [formation])
             before = formations.read_bytes()
             replies = [strategy_raw(), preset_raw("Main"), bench_raw]
-            for dry_run in (True, False):
-                processes = []
-                for reply in replies:
-                    process = mock.Mock(returncode=0)
-                    process.communicate.return_value = (json.dumps(reply), "")
-                    processes.append(process)
-                arguments = [
-                    "match",
-                    "--players-csv",
-                    str(players),
-                    "--teams-players-csv",
-                    str(memberships),
-                    "--rosters-csv",
-                    str(roster_path),
-                    "--formations-csv",
-                    str(formations),
-                    "--output-dir",
-                    str(data),
-                    "--team",
-                    "Custom Squad",
-                    "--preset-mode",
-                    "single",
-                    "--auto-substitutions",
-                    "3",
-                    "--auto-change-att-def",
-                    "1",
-                    "--auto-switch-preset-tactics",
-                    "1",
-                    "--delay",
-                    "0",
-                ]
-                if dry_run:
-                    arguments.append("--dry-run")
-                with (
-                    mock.patch.object(sys, "argv", arguments),
-                    mock.patch.object(
-                        claude_cli.subprocess, "Popen", side_effect=processes
+            processes = []
+            for reply in replies:
+                process = mock.Mock(returncode=0)
+                process.communicate.return_value = (json.dumps(reply), "")
+                processes.append(process)
+            arguments = [
+                "match",
+                "--players-csv",
+                str(players),
+                "--teams-players-csv",
+                str(memberships),
+                "--rosters-csv",
+                str(roster_path),
+                "--formations-csv",
+                str(formations),
+                "--output-dir",
+                str(data),
+                "--team",
+                "Custom Squad",
+                "--preset-mode",
+                "single",
+                "--auto-substitutions",
+                "3",
+                "--auto-change-att-def",
+                "1",
+                "--auto-switch-preset-tactics",
+                "1",
+                "--delay",
+                "0",
+            ]
+            with (
+                mock.patch.object(sys, "argv", arguments),
+                mock.patch.object(
+                    claude_cli.subprocess, "Popen", side_effect=processes
+                ),
+                mock.patch.object(
+                    assembled_injection,
+                    "compile_semantic_game_plan",
+                    wraps=compile_semantic_game_plan,
+                ) as compile_plan,
+                mock.patch.object(
+                    formation_injection,
+                    "compile_semantic_game_plan",
+                    side_effect=AssertionError(
+                        "Already compiled plans must not be recompiled"
                     ),
-                    mock.patch.object(
-                        assembled_injection,
-                        "compile_semantic_game_plan",
-                        wraps=compile_semantic_game_plan,
-                    ) as compile_plan,
-                    mock.patch.object(
-                        formation_injection,
-                        "compile_semantic_game_plan",
-                        side_effect=AssertionError(
-                            "Already compiled plans must not be recompiled"
-                        ),
-                    ),
-                    contextlib.redirect_stdout(io.StringIO()),
-                ):
-                    self.assertEqual(single.main(), 0)
-                compile_plan.assert_called_once()
-                for key, value in {
-                    "auto_substitutions": 3,
-                    "auto_change_att_def": 1,
-                    "auto_switch_preset_tactics": 1,
-                }.items():
-                    self.assertEqual(compile_plan.call_args.kwargs[key], value)
-                registry = data / single.COMPLETION_REGISTRY_NAME
-                if dry_run:
-                    self.assertEqual(formations.read_bytes(), before)
-                    self.assertFalse(registry.exists())
-                else:
-                    self.assertNotEqual(formations.read_bytes(), before)
-                    with formations.open(encoding="utf-8-sig") as stream:
-                        row = next(csv.DictReader(stream, delimiter=";"))
-                    self.assertEqual(row["AutoSubstitutions"], "3")
-                    self.assertEqual(row["AutoChangeAttDef"], "1")
-                    self.assertEqual(row["SwitchTactics"], "1")
-                    self.assertEqual(registry.read_text(), "77\tCustom Squad\n")
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(single.main(), 0)
+            compile_plan.assert_called_once()
+            for key, value in {
+                "auto_substitutions": 3,
+                "auto_change_att_def": 1,
+                "auto_switch_preset_tactics": 1,
+            }.items():
+                self.assertEqual(compile_plan.call_args.kwargs[key], value)
+            _, registry = single.match_plan_paths(data, "single")
+            self.assertNotEqual(formations.read_bytes(), before)
+            with formations.open(encoding="utf-8-sig") as stream:
+                row = next(csv.DictReader(stream, delimiter=";"))
+            self.assertEqual(row["AutoSubstitutions"], "3")
+            self.assertEqual(row["AutoChangeAttDef"], "1")
+            self.assertEqual(row["SwitchTactics"], "1")
+            self.assertEqual(registry.read_text(), "77\tCustom Squad\n")
             output = data
             self.assertFalse(list(output.rglob("Full_Game_Plan*")))
             self.assertFalse(list(output.rglob("Turn_*.md")))
             manifests = list(output.rglob("run_manifest.json"))
-            self.assertEqual(len(manifests), 2)
+            self.assertEqual(len(manifests), 1)
             for manifest_path in manifests:
                 manifest = json.loads(manifest_path.read_text())
                 self.assertEqual(
@@ -335,7 +329,29 @@ class StandaloneTests(unittest.TestCase):
                         "formations_csv": str(formations),
                     },
                 )
-                self.assertIn(manifest["status"], ("generated", "injected"))
+                self.assertEqual(manifest["status"], "injected")
+                report_path = (
+                    manifest_path.parent / manifest["artifacts"]["match_plan_report"]
+                )
+                report = report_path.read_text(encoding="utf-8")
+                self.assertIn("Match Plan Report", report)
+                with formations.open(encoding="utf-8-sig") as stream:
+                    injected = next(csv.DictReader(stream, delimiter=";"))
+                for role, label in (
+                    ("Captain", "Captain"),
+                    ("ShortFK", "Short free kick"),
+                    ("LongFK", "Long free kick"),
+                    ("SecondKicker", "Second kicker"),
+                    ("LeftCorner", "Left corner"),
+                    ("RightCorner", "Right corner"),
+                    ("Penalty", "Penalty"),
+                ):
+                    # This fixture's roster index 0 is player 1, and so on.
+                    player_id = int(injected[role]) + 1
+                    self.assertIn(
+                        f"| {label} | Player {player_id} (ID: {player_id}) |",
+                        report,
+                    )
                 self.assertEqual(
                     manifest["global_auto_options"],
                     {

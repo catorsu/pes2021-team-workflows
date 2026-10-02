@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from pes_workflows.contracts.json_codec import canonical_json
 from pes_workflows.prompts.assets import read_prompt_text
 
 from ..config import Config
@@ -284,13 +284,9 @@ def _render_user_prompt(template: str, blocks: Mapping[str, str]) -> str:
 
 
 def _canonical_json(value: Mapping[str, Any]) -> str:
+    """Translate serialization errors into prompt-input validation errors."""
     try:
-        return json.dumps(
-            dict(value),
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        )
+        return canonical_json(dict(value))
     except (TypeError, ValueError) as error:
         raise ValueError(
             "validated_profiles must contain only finite JSON-compatible values"

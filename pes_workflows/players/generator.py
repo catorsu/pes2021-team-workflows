@@ -24,6 +24,12 @@ from pes_workflows.domain.csv_schema import (
     MEMBERSHIP_COLUMNS,
     STARTER_COUNT,
 )
+from pes_workflows.domain.csv_schema import (
+    EMPTY_ROSTER_IDS as EMPTY_ROSTER_TOKENS,
+)
+from pes_workflows.domain.csv_schema import (
+    STARTER_COUNT as MINIMUM_SQUAD_SIZE,
+)
 from pes_workflows.domain.vocabulary import (
     ABILITY_COLUMN_MAP,
     COM_STYLE_COLUMNS,
@@ -33,21 +39,16 @@ from pes_workflows.domain.vocabulary import (
     POSITION_CODES,
 )
 from pes_workflows.players.records import parse_player_records_identity
+from pes_workflows.storage.filenames import sanitize_path_component
 from pes_workflows.storage.semicolon import read_semicolon_csv
-
-MINIMUM_SQUAD_SIZE = STARTER_COUNT
 
 # The familiarity column slot 0 is read from. Module-private: callers ask
 # whether a squad has a keeper, never which column says so
 _GOALKEEPER_CODE = "GK"
 
-EMPTY_ROSTER_TOKENS = EMPTY_ROSTER_IDS
-
-_ROSTER_SLOTS = FORMATION_ROSTER_SIZE
 _ROSTER_COLUMNS = ("Id", "TotalPlayers") + tuple(
-    f"Player{slot}" for slot in range(1, _ROSTER_SLOTS + 1)
+    f"Player{slot}" for slot in range(1, FORMATION_ROSTER_SIZE + 1)
 )
-_MEMBERSHIP_COLUMNS = MEMBERSHIP_COLUMNS
 _PLAYER_COLUMNS = (
     ("Id", "Name", "Height", "Weight", "Foot", "PlayingStyle", "POS")
     + POSITION_CODES
@@ -109,7 +110,6 @@ _MATRIX_PREAMBLE = "The matrix indexes Level-2 positional core and Level-1 cover
 
 _MATRIX_LEGEND = "**Column legend — `Squad-Available Playing Styles (derived)`:** For each Position row, derive `Squad-Available Playing Styles (derived)` from the carried styles of that row's Level-2 and Level-1 players whose styles are compatible with the Position in PLAYER_GLOSSARY §1. Include each player in positional depth according to familiarity. A `None` dossier contributes positional depth and an empty style contribution. Read `None` in the derived style column as an empty union for that squad cross-section. Determine style activation for individual assignments through PLAYER_GLOSSARY §1."
 
-_ILLEGAL_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _SIGNED_INTEGER = re.compile(r"-?[0-9]+")
 
 # ``PlayingStyle`` 0 means the player carries no style. The editor mapping in
@@ -216,15 +216,6 @@ def strip_team_markers(name: str) -> str:
     return name.rstrip("* \t").strip()
 
 
-def _sanitize_path_component(text: str) -> str:
-    """Make one team name safe as an export-directory path component."""
-
-    cleaned = _ILLEGAL_FILENAME_CHARS.sub("_", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = cleaned.rstrip(" .")
-    return cleaned or "team"
-
-
 def _positive_id(value: str, where: str) -> str:
     token = value.strip()
     if not token.isascii() or not token.isdecimal() or int(token) <= 0:
@@ -285,7 +276,7 @@ class PlayerRecordsGenerator:
         )
         roster_raw, roster_rows = _read_semicolon_csv(self.roster_path, _ROSTER_COLUMNS)
         _, membership_rows = _read_semicolon_csv(
-            self.teams_players_path, _MEMBERSHIP_COLUMNS
+            self.teams_players_path, MEMBERSHIP_COLUMNS
         )
 
         self.players_sha256: str = hashlib.sha256(players_raw).hexdigest()
@@ -334,9 +325,9 @@ class PlayerRecordsGenerator:
                     f"{self.roster_path}: duplicate team row for ID {team_id}."
                 )
             slots: list[str] = []
-            for slot in range(1, _ROSTER_SLOTS + 1):
+            for slot in range(1, FORMATION_ROSTER_SIZE + 1):
                 token = row.get(f"Player{slot}", "").strip()
-                if token.casefold() in EMPTY_ROSTER_TOKENS:
+                if token.casefold() in EMPTY_ROSTER_IDS:
                     continue
                 if not token.isascii() or not token.isdecimal():
                     raise PlayerRecordsGenerationError(
@@ -382,7 +373,7 @@ class PlayerRecordsGenerator:
                 selected_ids &= team_ids
         stems: dict[str, set[str]] = {}
         for team_id, name, _kind in catalog:
-            stem = _sanitize_path_component(strip_team_markers(name))
+            stem = sanitize_path_component(strip_team_markers(name))
             stems.setdefault(stem.casefold(), set()).add(team_id)
 
         found: dict[str, tuple[str, str]] = {}
@@ -423,7 +414,7 @@ class PlayerRecordsGenerator:
                 name,
                 f"{self.teams_players_path}: {kind} ID {team_id} team name",
             )
-            stem = _sanitize_path_component(strip_team_markers(name))
+            stem = sanitize_path_component(strip_team_markers(name))
             if len(stems[stem.casefold()]) > 1:
                 stem = f"{stem}_{team_id}"
             teams[team_id] = TeamRecord(
@@ -525,14 +516,14 @@ class PlayerRecordsGenerator:
 
         record = self.resolve_team(team_id=str(team_id).strip())
         player_ids, missing = self.squad(record.team_id)
-        if len(player_ids) < MINIMUM_SQUAD_SIZE:
+        if len(player_ids) < STARTER_COUNT:
             shown = ", ".join(missing[:10]) + ("…" if len(missing) > 10 else "")
             raise InsufficientSquadError(
                 f"{record.kind} {record.team_name!r} (ID {record.team_id}) "
                 f"resolves only {len(player_ids)} of its "
                 f"{len(player_ids) + len(missing)} roster players against "
                 f"{self.players_path.name}; a PLAYER_RECORDS document needs at "
-                f"least {MINIMUM_SQUAD_SIZE}. Missing player id(s): "
+                f"least {STARTER_COUNT}. Missing player id(s): "
                 f"{shown or 'none'}."
             )
         self._require_fieldable_xi(record, player_ids)
@@ -792,6 +783,8 @@ def select_team(teams: Iterable[TeamRecord], team_query: str) -> TeamRecord:
     return candidates[0]
 
 
+# Keep the original public constant names as imports for compatibility; internal
+# code uses the canonical csv_schema names directly.
 __all__ = [
     "ABILITY_GROUPS",
     "EMPTY_ROSTER_TOKENS",

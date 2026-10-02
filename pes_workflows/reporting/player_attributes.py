@@ -5,14 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pes_workflows.domain.vocabulary import POSITION_CODES
 from pes_workflows.player_attributes.constants import (
-    POSITIONS,
     order_com_styles,
     order_player_skills,
 )
 from pes_workflows.player_attributes.contracts import PlayerAttributeTeam
-
-_POSITION_ORDER = POSITIONS
+from pes_workflows.reporting.markdown import escape_markdown
 
 _STAT_CATEGORIES = (
     (
@@ -75,29 +74,10 @@ _STAT_CATEGORIES = (
 _NO_VALUE = "—"
 
 
-def _markdown_text(value: Any) -> str:
-    """Flatten and escape untrusted dynamic text for inline Markdown."""
-
-    text = " ".join(str(value).splitlines()).strip()
-    replacements = (
-        ("\\", "\\\\"),
-        ("`", "\\`"),
-        ("*", "\\*"),
-        ("_", "\\_"),
-        ("[", "\\["),
-        ("]", "\\]"),
-        ("<", "&lt;"),
-        (">", "&gt;"),
-    )
-    for old, new in replacements:
-        text = text.replace(old, new)
-    return text
-
-
 def _render_familiarity(
     familiarity: Mapping[str, Any], registered_position: str
 ) -> str:
-    order = {position: index for index, position in enumerate(_POSITION_ORDER)}
+    order = {position: index for index, position in enumerate(POSITION_CODES)}
     positions = sorted(
         familiarity,
         key=lambda position: (
@@ -107,18 +87,19 @@ def _render_familiarity(
         ),
     )
     return ", ".join(
-        f"{_markdown_text(position)}({familiarity[position]})" for position in positions
+        f"{escape_markdown(position)}({familiarity[position]})"
+        for position in positions
     )
 
 
 def _render_playing_style(value: Any) -> str:
     """``Playing Style`` is nullable; a null renders as the absence marker."""
 
-    return _NO_VALUE if value is None else _markdown_text(value)
+    return _NO_VALUE if value is None else escape_markdown(value)
 
 
 def _render_terms(terms: Sequence[Any]) -> str:
-    return ", ".join(_markdown_text(term) for term in terms) if terms else _NO_VALUE
+    return ", ".join(escape_markdown(term) for term in terms) if terms else _NO_VALUE
 
 
 def _render_stat_category(
@@ -136,7 +117,7 @@ def _render_stat_category(
             continue
         category_rationales.append(
             f"{canonical_name} {stats[canonical_name]}: "
-            f"{_markdown_text(rationales[canonical_name])}"
+            f"{escape_markdown(rationales[canonical_name])}"
         )
     rationale_suffix = (
         " [" + "; ".join(category_rationales) + "]" if category_rationales else ""
@@ -153,12 +134,12 @@ def render_player_attribute_team_markdown(team: PlayerAttributeTeam) -> str:
     raw = team.to_dict()
     players = raw["Players"]
     lines = [
-        f"# PES 2021 Player Information Report — {_markdown_text(raw['Team Name'])}",
+        f"# PES 2021 Player Information Report — {escape_markdown(raw['Team Name'])}",
         "",
-        f"- **Team Kind:** {_markdown_text(raw['Team Kind'])}",
-        f"- **Team ID:** {_markdown_text(raw['Team ID'])}",
+        f"- **Team Kind:** {escape_markdown(raw['Team Kind'])}",
+        f"- **Team ID:** {escape_markdown(raw['Team ID'])}",
         f"- **Players:** {len(players)}",
-        f"- **Schema:** `{_markdown_text(raw['Schema Version'])}`",
+        f"- **Schema:** `{escape_markdown(raw['Schema Version'])}`",
         "",
         (
             "This report is a human-readable projection of a validated machine "
@@ -167,7 +148,7 @@ def render_player_attribute_team_markdown(team: PlayerAttributeTeam) -> str:
     ]
 
     for profile in players:
-        player_name = _markdown_text(profile["Player Name"])
+        player_name = escape_markdown(profile["Player Name"])
         registered_position = profile["Registered Position"]
         stats = {**profile["Abilities"], **profile["Form and Traits"]}
         rationales = profile["Elite Rationales"]
@@ -181,8 +162,8 @@ def render_player_attribute_team_markdown(team: PlayerAttributeTeam) -> str:
                 "",
                 f"## {player_name} (Age: {profile['Age']})",
                 "",
-                f"- **Player ID:** {_markdown_text(profile['Player ID'])}",
-                (f"- **Registered Position:** {_markdown_text(registered_position)}"),
+                f"- **Player ID:** {escape_markdown(profile['Player ID'])}",
+                (f"- **Registered Position:** {escape_markdown(registered_position)}"),
                 (
                     "- **Position Familiarity:** "
                     + _render_familiarity(
@@ -191,7 +172,7 @@ def render_player_attribute_team_markdown(team: PlayerAttributeTeam) -> str:
                 ),
                 (
                     "- **Stronger Foot:** "
-                    f"{_markdown_text(profile['Stronger Foot'])} "
+                    f"{escape_markdown(profile['Stronger Foot'])} "
                     f"(Weak Foot Usage: {stats['Weak Foot Usage']}, "
                     f"Weak Foot Accuracy: {stats['Weak Foot Accuracy']})"
                 ),
@@ -204,7 +185,7 @@ def render_player_attribute_team_markdown(team: PlayerAttributeTeam) -> str:
                 "",
                 (
                     f"**[{player_name} ({profile['Age']}) - "
-                    f"{_markdown_text(registered_position)} - "
+                    f"{escape_markdown(registered_position)} - "
                     f"{_render_playing_style(profile['Playing Style'])}]**"
                 ),
                 "",

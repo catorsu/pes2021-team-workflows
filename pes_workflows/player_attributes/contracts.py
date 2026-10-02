@@ -27,6 +27,7 @@ from pes_workflows.domain.vocabulary import (
     PLAYER_SKILLS,
     PLAYING_STYLE_POSITIONS,
     PLAYING_STYLES,
+    POSITION_CODES,
     TEAM_KINDS,
 )
 
@@ -45,7 +46,6 @@ from .constants import (
     PLAYER_ATTRIBUTE_SCHEMA_VERSION,
     PLAYER_ATTRIBUTE_TEAM_ARTIFACT,
     PLAYER_PROFILES_ARTIFACT,
-    POSITIONS,
     STRONGER_FEET,
     TRAIT_STATS,
     WEAK_FOOT_MAX,
@@ -481,7 +481,7 @@ def _validate_profile_row(raw: Mapping[str, Any]) -> PlayerProfile:
     player_name = _expect_string(raw["Player Name"], artifact, "$.Player Name")
     age = _positive_age(raw["Age"], artifact, "$.Age")
     registered_position = _expect_enum(
-        raw["Registered Position"], POSITIONS, artifact, "$.Registered Position"
+        raw["Registered Position"], POSITION_CODES, artifact, "$.Registered Position"
     )
 
     familiarity_raw = _expect_object(
@@ -494,12 +494,12 @@ def _validate_profile_row(raw: Mapping[str, Any]) -> PlayerProfile:
     familiarity: dict[str, int] = {}
     for position, value in familiarity_raw.items():
         position_path = _path("$.Position Familiarity", position)
-        if position not in POSITIONS:
+        if position not in POSITION_CODES:
             raise ArtifactSchemaError(
                 artifact,
                 position_path,
                 "position must be one of "
-                + ", ".join(repr(item) for item in POSITIONS),
+                + ", ".join(repr(item) for item in POSITION_CODES),
             )
         familiarity[position] = _bounded_int(value, 1, 2, artifact, position_path)
     if registered_position not in familiarity:

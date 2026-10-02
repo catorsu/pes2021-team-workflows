@@ -101,7 +101,6 @@ MATCH_OPTIONS = (
         "output_dir",
         "engine",
         "preset_mode",
-        "dry_run",
         "force",
         "attributes_completed_teams",
         "scope",
@@ -122,7 +121,7 @@ WORKFLOW_OPTIONS = {
     },
 }
 PATH_OPTIONS = CSV_PATH_OPTIONS | {"output_dir", "attributes_completed_teams"}
-BOOL_OPTIONS = {"fast", "dry_run", "force", "check_only"}
+BOOL_OPTIONS = {"fast", "force", "check_only"}
 CHOICES = {
     "effort": Config.EFFORT_CHOICES,
     "engine": ("claude-code", "codex"),

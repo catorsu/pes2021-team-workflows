@@ -23,6 +23,7 @@ MANIFEST_SCHEMA_VERSION = 2
 
 SYSTEM_PROMPT_NAME = "00_Final_System_Prompt.md"
 CONVERSATION_HISTORY_NAME = "conversation_history.json"
+MATCH_PLAN_REPORT_NAME = "match_plan.md"
 
 RUN_STATUS_PREPARED = "prepared"
 RUN_STATUS_GENERATED = "generated"

@@ -60,8 +60,6 @@ preset_mode = "single"
 scope = "single"
 # List of exact team names or ID strings; default []. Replace this example ID.
 teams = ["77"]
-# Generate and validate without writing Formations.csv; true/false; default false.
-dry_run = false
 # Regenerate a team even if marked complete; true/false; default false.
 force = false
 # Artifact/log/completion directory; CLI fallback ./outputs/match_plan in cwd.
@@ -90,8 +88,6 @@ scope = "all"
 # Exact names/ID strings; default []. Duplicate matches run once, in selection order.
 teams = []
 # To select several teams: scope = "multiple", teams = ["77", "My Club"]
-# Generate and validate without writing Formations.csv; true/false; default false.
-dry_run = false
 # Regenerate completed teams; true/false; default false.
 force = false
 # Only validate eligibility offline, without model calls; true/false; default false.
@@ -106,7 +102,7 @@ output_dir = "./outputs/match_plans"
 # attributes_completed_teams = "./outputs/player_attributes/completed_teams_player_attributes.txt"
 
 [player_attributes]
-# Uses Claude Code only; engine, preset_mode, dry_run and force are not accepted here.
+# Uses Claude Code only; engine, preset_mode and force are not accepted here.
 # Selection: single (one team) | multiple (2+ teams) | all (empty teams).
 # Omitted scope is inferred from teams; an empty/omitted list selects all.
 scope = "all"

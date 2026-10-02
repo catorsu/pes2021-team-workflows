@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from pes_workflows.domain.vocabulary import (
     COM_PLAYING_STYLES,
     PLAYER_SKILLS,
-    POSITION_IDS,
     STAT_NAMES,
 )
 
@@ -18,8 +17,6 @@ PLAYER_ATTRIBUTE_SCHEMA_VERSION = "4.0"
 PLAYER_PROFILES_ARTIFACT = "PlayerProfiles"
 PLAYER_ABILITIES_ARTIFACT = "PlayerAbilities"
 PLAYER_ATTRIBUTE_TEAM_ARTIFACT = "PlayerAttributeTeam"
-
-POSITIONS = tuple(POSITION_IDS)
 
 # Slices of the shared ability order. ``domain.vocabulary`` documents that this
 # order is load-bearing precisely because of these partitions
