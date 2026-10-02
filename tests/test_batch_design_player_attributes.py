@@ -149,6 +149,94 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(self.adapter_kwargs["model"], "claude-opus-5-5")
         self.assertEqual(self.adapter_kwargs["effort"], "high")
         self.assertEqual(self.adapter_kwargs["max_turns"], 80)
+        self.assertEqual(self.adapter_kwargs["engine"], "claude-code")
+        self.assertEqual(self.state()["engine"], "claude-code")
+
+    def test_codex_defaults_config_precedence_and_explicit_overrides(self) -> None:
+        config = self.data / "settings.toml"
+        cases = [
+            ("", ["--engine", "codex"], "codex", "gpt-6-astra", "high"),
+            (
+                '[player_attributes]\nengine="codex"\n',
+                [],
+                "codex",
+                "gpt-6-astra",
+                "high",
+            ),
+            (
+                '[defaults]\nmodel="shared"\neffort="low"\n'
+                '[player_attributes]\nengine="codex"\nmodel="workflow"\neffort="max"\n',
+                [],
+                "codex",
+                "workflow",
+                "max",
+            ),
+            (
+                '[player_attributes]\nengine="codex"\nmodel="configured"\n',
+                ["--engine", "claude-code"],
+                "claude-code",
+                "configured",
+                "high",
+            ),
+            (
+                '[player_attributes]\nengine="claude-code"\nmodel="configured"\n',
+                ["--engine", "codex", "--model", "explicit", "--effort", "medium"],
+                "codex",
+                "explicit",
+                "medium",
+            ),
+        ]
+        for index, (content, flags, engine, model, effort) in enumerate(cases):
+            with self.subTest(index=index):
+                self.out = self.data / f"engine-case-{index}"
+                config.write_text(content)
+                self.assertEqual(self.invoke("--config", str(config), *flags)[0], 0)
+                self.assertEqual(self.adapter_kwargs["engine"], engine)
+                self.assertEqual(self.adapter_kwargs["model"], model)
+                self.assertEqual(self.adapter_kwargs["effort"], effort)
+                self.assertEqual(self.state()["engine"], engine)
+
+    def test_engine_changes_are_rejected_even_with_identical_model_and_effort(
+        self,
+    ) -> None:
+        self.assertEqual(self.invoke("--no-config", "--model", "shared")[0], 0)
+        for legacy in (False, True):
+            state = self.state()
+            if legacy:
+                del state["engine"]
+                batch.save(self.out / "batch_state.json", state)
+            with (
+                self.subTest(legacy=legacy),
+                self.assertRaisesRegex(RuntimeError, "Engine changed"),
+            ):
+                self.invoke("--no-config", "--engine", "codex", "--model", "shared")
+        self.assertEqual(self.invoke("--no-config", "--model", "shared")[0], 0)
+        self.assertEqual(self.state()["engine"], "claude-code")
+        self.assertEqual(len(self.runs), 3)
+
+    def test_invalid_engine_is_rejected_before_work(self) -> None:
+        config = self.data / "settings.toml"
+        for content, flags in (
+            ('[player_attributes]\nengine="invalid"\n', []),
+            ('[defaults]\nengine="codex"\n', []),
+            ("", ["--engine", "invalid"]),
+        ):
+            config.write_text(content)
+            with (
+                contextlib.redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                self.invoke("--config", str(config), *flags)
+        self.assertEqual(self.runs, [])
+        self.assertFalse(self.out.exists())
+
+    def test_codex_check_only_needs_no_cli_and_creates_no_checkpoint(self) -> None:
+        self.assertEqual(
+            self.invoke("--no-config", "--engine", "codex", "--check-only")[0], 0
+        )
+        self.assertIsNone(self.adapter_kwargs)
+        self.assertFalse((self.out / "batch_state.json").exists())
+        self.assertEqual(self.runs, [])
 
     def test_configured_turn_limit_and_cli_override_reach_adapter(self) -> None:
         config = self.data / "settings.toml"
@@ -580,6 +668,7 @@ class ScopedPreflightTests(unittest.TestCase):
         self.assertEqual(
             adapter.call_args.kwargs,
             dict(
+                engine="claude-code",
                 model="configured",
                 effort="high",
                 delay=0,
@@ -613,6 +702,11 @@ class ScopedPreflightTests(unittest.TestCase):
 
 class BatchTransportTests(unittest.TestCase):
     def test_real_adapter_stages_and_repair_keep_tools_audit_and_resume(self) -> None:
+        for engine in ("claude-code", "codex"):
+            with self.subTest(engine=engine):
+                self.assert_transport_pipeline(engine)
+
+    def assert_transport_pipeline(self, engine: str) -> None:
         with tempfile.TemporaryDirectory() as directory:
             data = Path(directory)
             output = data / "audit"
@@ -635,7 +729,11 @@ class BatchTransportTests(unittest.TestCase):
                 team_id="1",
             )
             replies = [
-                "{}",
+                (
+                    "```json\n" + json.dumps(profiles_artifact(team, targets)) + "\n```"
+                    if engine == "codex"
+                    else "{}"
+                ),
                 json.dumps(profiles_artifact(team, targets)),
                 json.dumps(abilities_artifact(team, targets)),
             ]
@@ -643,28 +741,47 @@ class BatchTransportTests(unittest.TestCase):
 
             def popen(cmd: list[str], **kwargs: Any) -> mock.Mock:
                 self.assertEqual(players.read_bytes(), before)
-                self.assertEqual(cmd[0], "claude")
-                for flag, value in [
-                    ("--tools", "WebSearch,WebFetch"),
-                    ("--allowedTools", "WebSearch,WebFetch"),
-                    ("--max-turns", "37"),
-                    ("--disallowedTools", "mcp__*"),
-                    ("--output-format", "text"),
-                    ("--model", "offline-model"),
-                ]:
-                    self.assertEqual(cmd[cmd.index(flag) + 1], value)
-                self.assertEqual(
-                    Path(cmd[cmd.index("--system-prompt-file") + 1]).read_text(),
-                    batch.PlayerAttributePromptBuilder()._system_prompt,
-                )
-                self.assertIn("-p", cmd)
-                self.assertIn("--no-session-persistence", cmd)
-                self.assertEqual(
-                    json.loads(cmd[cmd.index("--settings") + 1]), {"fastMode": True}
-                )
-                self.assertEqual(kwargs["env"]["CLAUDE_CODE_EFFORT_LEVEL"], "high")
-                self.assertEqual(kwargs["env"]["CI"], "true")
-                self.assertNotIn("ANTHROPIC_BASE_URL", kwargs["env"])
+                if engine == "claude-code":
+                    self.assertEqual(cmd[0], "claude")
+                    values = [
+                        ("--tools", "WebSearch,WebFetch"),
+                        ("--allowedTools", "WebSearch,WebFetch"),
+                        ("--max-turns", "37"),
+                        ("--disallowedTools", "mcp__*"),
+                        ("--output-format", "text"),
+                        ("--model", "offline-model"),
+                    ]
+                    for flag, value in values:
+                        self.assertEqual(cmd[cmd.index(flag) + 1], value)
+                    self.assertEqual(
+                        Path(cmd[cmd.index("--system-prompt-file") + 1]).read_text(),
+                        batch.PlayerAttributePromptBuilder()._system_prompt,
+                    )
+                    self.assertIn("-p", cmd)
+                    self.assertIn("--no-session-persistence", cmd)
+                    self.assertEqual(
+                        json.loads(cmd[cmd.index("--settings") + 1]), {"fastMode": True}
+                    )
+                    self.assertEqual(kwargs["env"]["CLAUDE_CODE_EFFORT_LEVEL"], "high")
+                    self.assertEqual(kwargs["env"]["CI"], "true")
+                    self.assertNotIn("ANTHROPIC_BASE_URL", kwargs["env"])
+                else:
+                    self.assertEqual(cmd[:2], ["codex", "exec"])
+                    self.assertEqual(cmd[cmd.index("--model") + 1], "offline-model")
+                    self.assertIn('web_search="live"', cmd)
+                    self.assertIn('model_reasoning_effort="high"', cmd)
+                    self.assertIn('service_tier="fast"', cmd)
+                    self.assertNotIn("--max-turns", cmd)
+                    policy = next(
+                        arg for arg in cmd if arg.startswith("model_instructions_file=")
+                    )
+                    self.assertEqual(
+                        Path(json.loads(policy.split("=", 1)[1])).read_text(),
+                        batch.PlayerAttributePromptBuilder()._system_prompt,
+                    )
+                    Path(cmd[cmd.index("--output-last-message") + 1]).write_text(
+                        replies[len(processes)]
+                    )
                 self.assertNotIn("shell", kwargs)
                 self.assertNotIn("timeout", kwargs)
                 process = mock.Mock(returncode=0)
@@ -678,6 +795,8 @@ class BatchTransportTests(unittest.TestCase):
                 "batch",
                 "--config",
                 str(config),
+                "--engine",
+                engine,
                 "--players-csv",
                 str(players),
                 "--teams-players-csv",
@@ -711,6 +830,12 @@ class BatchTransportTests(unittest.TestCase):
             self.assertEqual(len(requests), 3)
             audited = [json.loads(path.read_text()) for path in requests]
             self.assertEqual([request["turn"] for request in audited], [1, 1, 2])
+            for request in audited:
+                self.assertEqual(request["transport"]["engine"], engine)
+                self.assertEqual(request["transport"]["max_turns"], 37)
+                self.assertEqual(
+                    request["transport"]["max_turns_enforced"], engine == "claude-code"
+                )
             for request, process, reply, path in zip(
                 audited, processes, replies, requests
             ):
@@ -738,6 +863,7 @@ class BatchTransportTests(unittest.TestCase):
             )
             self.assertFalse(list((output / "calls").glob("*.error.json")))
             state = json.loads((output / "batch_state.json").read_text())
+            self.assertEqual(state["engine"], engine)
             self.assertEqual(state["players_csv"], str(players))
             self.assertEqual(state["teams_players_csv"], str(memberships))
             self.assertEqual(set(state["completed"]), {"1"})

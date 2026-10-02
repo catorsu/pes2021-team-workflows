@@ -113,6 +113,7 @@ WORKFLOW_OPTIONS = {
     "player_attributes": SHARED_OPTIONS
     | {
         "output_dir",
+        "engine",
         "check_only",
         "max_teams",
         "max_turns",

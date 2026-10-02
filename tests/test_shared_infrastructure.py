@@ -142,6 +142,7 @@ class NativeClaudeTests(unittest.TestCase):
                         "turn": 2,
                         "team_name": "A",
                         "user_id": None,
+                        "transport": adapter.transport_metadata,
                     },
                 )
             error_path = requests[0].with_name(
@@ -275,6 +276,111 @@ class NativeClaudeTests(unittest.TestCase):
 
 
 class NativeCodexTests(unittest.TestCase):
+    def test_attribute_transport_preserves_contract_violations_and_audits_retries(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audit = Path(directory)
+            adapter = AuditedAdapter(
+                audit,
+                engine="codex",
+                effort="max",
+                fast_mode=True,
+                delay=0,
+                max_turns=17,
+            )
+            adapter._sleep = mock.Mock()
+            messages = [
+                {"role": "system", "content": "exact policy — UTF-8\n"},
+                {"role": "user", "content": "task"},
+                {"role": "assistant", "content": "invalid prior answer"},
+                {"role": "user", "content": "scoped correction"},
+            ]
+            response = 'Commentary\n```json\n{"ok":true}\n```'
+            attempts = []
+
+            def run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+                self.assertEqual(cmd[:2], ["codex", "exec"])
+                self.assertEqual(cmd[cmd.index("--model") + 1], "gpt-6-astra")
+                self.assertEqual(cmd[cmd.index("--sandbox") + 1], "read-only")
+                self.assertNotIn("--max-turns", cmd)
+                self.assertIn("--ignore-user-config", cmd)
+                self.assertIn('web_search="live"', cmd)
+                self.assertIn('model_reasoning_effort="max"', cmd)
+                self.assertIn('service_tier="fast"', cmd)
+                for feature in (
+                    "shell_tool",
+                    "apps",
+                    "multi_agent",
+                    "plugins",
+                    "hooks",
+                ):
+                    self.assertIn(f"features.{feature}=false", cmd)
+                self.assertEqual(
+                    kwargs["input"],
+                    claude_cli.ClaudeCodeSubprocessAdapter._build_user_prompt(messages),
+                )
+                policy = next(
+                    arg for arg in cmd if arg.startswith("model_instructions_file=")
+                )
+                self.assertEqual(
+                    Path(json.loads(policy.split("=", 1)[1])).read_bytes(),
+                    messages[0]["content"].encode(),
+                )
+                attempts.append(Path(kwargs["cwd"]))
+                if len(attempts) == 1:
+                    return subprocess.CompletedProcess(
+                        cmd, 1, "partial", "503 overloaded"
+                    )
+                Path(cmd[cmd.index("--output-last-message") + 1]).write_text(response)
+                return subprocess.CompletedProcess(cmd, 0, "progress {}", "diagnostics")
+
+            with mock.patch.object(claude_cli, "run_claude", side_effect=run):
+                self.assertEqual(adapter.generate(messages, 2, "A"), (response, ""))
+            adapter._sleep.assert_called_once_with(adapter.initial_backoff)
+            self.assertEqual(len(attempts), 2)
+            self.assertTrue(all(not path.exists() for path in attempts))
+            requests = sorted(audit.glob("*.request.json"))
+            self.assertEqual(len(requests), 2)
+            for path in requests:
+                request = json.loads(path.read_text())
+                self.assertEqual(request["messages"], messages)
+                self.assertEqual(request["transport"]["engine"], "codex")
+                self.assertEqual(request["transport"]["max_turns"], 17)
+                self.assertFalse(request["transport"]["max_turns_enforced"])
+                self.assertEqual(request["transport"]["tools"], ["web_search"])
+            self.assertEqual(len(list(audit.glob("*.error.json"))), 1)
+            self.assertEqual(next(audit.glob("*.response.txt")).read_text(), response)
+
+    def test_attribute_failure_and_interrupt_are_audited_without_retry(self) -> None:
+        for error in (FileNotFoundError("missing codex"), KeyboardInterrupt()):
+            with tempfile.TemporaryDirectory() as directory:
+                audit = Path(directory)
+                adapter = AuditedAdapter(audit, engine="codex", delay=0)
+                with (
+                    self.subTest(error=type(error).__name__),
+                    mock.patch.object(
+                        claude_cli, "run_claude", side_effect=error
+                    ) as run,
+                    self.assertRaises(
+                        KeyboardInterrupt
+                        if isinstance(error, KeyboardInterrupt)
+                        else LLMResponseError
+                    ),
+                ):
+                    adapter.generate(
+                        [
+                            {"role": "system", "content": "policy"},
+                            {"role": "user", "content": "task"},
+                        ],
+                        1,
+                        "A",
+                    )
+                run.assert_called_once()
+                self.assertEqual(len(list(audit.glob("*.request.json"))), 1)
+                self.assertEqual(len(list(audit.glob("*.error.json"))), 1)
+                self.assertFalse(list(audit.glob("*.response.txt")))
+
     def test_rendered_policy_validation_and_cleanup_for_both_transports(self) -> None:
         for cls in (
             claude_cli.ClaudeCodeSubprocessAdapter,

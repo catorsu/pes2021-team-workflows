@@ -5,7 +5,8 @@
 Standalone Python 3.11+ workflows for WSL and Linux. Copy this directory anywhere;
 it contains its own compiler, validators, roster readers, CSV writers, CLI
 adapters, prompts, and offline tests. Runtime dependencies are pandas and an
-authenticated `claude` executable, or `codex` for match plans. No GUI or API SDK is
+authenticated `claude` or `codex` executable. Both engines support match plans and
+player attributes. No GUI or API SDK is
 required.
 
 ## Install and run
@@ -56,6 +57,9 @@ pes-match-plan "${csv_paths[@]}" --team 77 --preset-mode single --engine codex
 # Model the roster at its existing Players.csv ages, then atomically inject it.
 pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club' --check-only
 pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club'
+
+# Codex enables live web research; choose a separate output directory per engine.
+pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club' --engine codex --output ./outputs/attributes_codex
 ```
 
 Without installation, run from this directory using
@@ -96,12 +100,13 @@ paths and `preset_mode`; attributes require only the players and membership path
 | `[defaults]` | `players_csv`, `teams_players_csv`, `rosters_csv`, `formations_csv`, `model`, `effort`, `delay`, `fast`; match plans also inherit the Global Auto Options below |
 | `[match_plan]` | Shared settings plus `output_dir`, `engine`, `preset_mode`, `auto_substitutions`, `auto_change_att_def`, `auto_switch_preset_tactics`, `force`, `attributes_completed_teams`, `scope`, `teams` |
 | `[match_plans]` | All single-match settings plus `check_only` |
-| `[player_attributes]` | Shared settings plus `output_dir`, `check_only`, `max_teams`, `max_turns`, `scope`, `teams` |
+| `[player_attributes]` | Shared settings plus `output_dir`, `engine`, `check_only`, `max_teams`, `max_turns`, `scope`, `teams` |
 
 Keys use underscores; equivalent CLI flags use hyphens. Attribute `output_dir`
-maps to `--output` (also accepted as `--output-dir`). Attributes retain their
-Claude Code transport; `engine`, `preset_mode`, and `force` apply to
-match plans. For offline attribute validation, use `check_only`.
+maps to `--output` (also accepted as `--output-dir`). Every workflow accepts
+`engine="claude-code"` (default) or `engine="codex"`, overridden by `--engine`.
+`preset_mode` and `force` apply to match plans. For offline attribute validation,
+use `check_only`.
 Booleans accept explicit CLI reversal: `--no-fast`,
 `--no-force`, and `--no-check-only` override configured `true` values wherever
 the corresponding flag is supported. Omit `model` and `effort` to use engine
@@ -122,7 +127,18 @@ Player attributes accept `max_turns` only in `[player_attributes]`, or
 `--max-turns N` on the CLI. It must be a positive integer and defaults to `80`.
 The limit applies to each Claude CLI request, including web tool interactions,
 and is reused for each stage, repair, and retry. CLI values override TOML.
+Codex has no native equivalent of this turn ceiling: `max_turns` is not enforced
+for Codex, which manages its own tool loop and context compaction. Selecting
+Codex logs this limitation and records `max_turns_enforced=false` in each request
+audit. Transport retries and contract repairs remain bounded for both engines.
 It does not limit team count (`max_teams`) or change the match-plan turn limit.
+
+Attributes enable Claude's `WebSearch`/`WebFetch` or Codex's hosted live web
+research; match plans keep web research disabled. Codex uses the same isolated,
+read-only headless adapter as match plans and reads only its final-message file
+for the artifact response. Attribute responses retain fences and prose so the
+strict parser can reject them and request the existing scoped correction.
+Install and authenticate Codex inside the WSL/Linux environment running Python.
 
 Global Auto Options can be set in `[defaults]`, `[match_plan]`, or `[match_plans]`.
 They apply to the team's global formation row and are independent of model output.
@@ -322,10 +338,15 @@ resume verifies it and recreates a missing report from the saved, validated
 Keep the output directory at its original absolute path when resuming a batch.
 
 Re-run the same attribute command to resume; `--max-teams N` bounds one invocation.
-Attribute checkpoints retain their model and effort. To resume a batch created
+Attribute checkpoints retain their engine, model, and effort; changing engines
+requires a new output directory. Checkpoints without an engine field are treated
+as Claude Code runs. To resume a batch created
 with older defaults, explicitly select its recorded model and effort; use a new
 output directory to start with the updated defaults. `max_turns` may be adjusted
-between invocations and applies to subsequent requests.
+between invocations and applies to subsequent Claude requests.
+Every stage, repair, transport retry, and interruption has a request audit paired
+with a response or error file. Requests include engine/model/effort, fast mode,
+tool scope, and whether the configured CLI turn limit is enforced.
 A completion registry alone does not prove that reports exist: the checkpoint is
 authoritative and repairs an interrupted registry update. Resume checks source
 absolute CSV paths as well as CSV and prompt hashes and rejects untracked edits.

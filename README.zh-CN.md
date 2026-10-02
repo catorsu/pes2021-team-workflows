@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-适用于 WSL 和 Linux 的独立 Python 3.11+ 工作流。可以将整个项目目录复制到任意位置运行；项目自带编译器、校验器、名单读取器、CSV 写入器、CLI 适配器、提示词和离线测试。运行依赖 pandas，以及已完成身份验证的 `claude` 命令；比赛计划也可以使用 `codex`。无需图形界面或 API SDK。
+适用于 WSL 和 Linux 的独立 Python 3.11+ 工作流。可以将整个项目目录复制到任意位置运行；项目自带编译器、校验器、名单读取器、CSV 写入器、CLI 适配器、提示词和离线测试。运行依赖 pandas，以及已完成身份验证的 `claude` 或 `codex` 命令；两个引擎均支持比赛计划和球员属性。无需图形界面或 API SDK。
 
 ## 安装与运行
 
@@ -62,15 +62,21 @@ pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /pat
 | `[defaults]` | `players_csv`、`teams_players_csv`、`rosters_csv`、`formations_csv`、`model`、`effort`、`delay`、`fast`；比赛计划还继承下文的全局自动选项 |
 | `[match_plan]` | 共享设置，以及 `output_dir`、`engine`、`preset_mode`、`auto_substitutions`、`auto_change_att_def`、`auto_switch_preset_tactics`、`force`、`attributes_completed_teams`、`scope`、`teams` |
 | `[match_plans]` | 单队比赛计划的全部设置，以及 `check_only` |
-| `[player_attributes]` | 共享设置，以及 `output_dir`、`check_only`、`max_teams`、`max_turns`、`scope`、`teams` |
+| `[player_attributes]` | 共享设置，以及 `output_dir`、`engine`、`check_only`、`max_teams`、`max_turns`、`scope`、`teams` |
 
-配置键使用下划线，对应 CLI 参数使用连字符。球员属性的 `output_dir` 对应 `--output`，也接受 `--output-dir`。球员属性始终使用 Claude Code；`engine`、`preset_mode` 和 `force` 只适用于比赛计划。属性工作流的离线校验使用 `check_only`。
+配置键使用下划线，对应 CLI 参数使用连字符。球员属性的 `output_dir` 对应 `--output`，也接受 `--output-dir`。所有工作流都接受 `engine="claude-code"`（默认）或 `engine="codex"`，CLI 可用 `--engine` 覆盖；`preset_mode` 和 `force` 只适用于比赛计划。属性工作流的离线校验使用 `check_only`。
 
 布尔选项支持显式反向覆盖：在支持相应选项的命令中，`--no-fast`、`--no-force` 和 `--no-check-only` 会覆盖配置中的 `true`。省略 `model` 和 `effort` 时使用引擎默认值；只覆盖 `--engine` 不会清除已配置的模型和推理强度。
 
 两个引擎均默认使用 `effort="high"`；工作流接受 `low`、`medium`、`high`、`xhigh` 和 `max`，具体取决于模型是否支持。项目中 Claude 的默认模型是 `claude-opus-5-5`，备选示例为 `claude-fable-5-1`；Codex 默认模型是 `gpt-6-astra`，备选示例为 `gpt-6-sol`。模型 ID 不限于这些示例。模型信息可参考 [Claude 模型目录](https://platform.claude.com/docs/en/models/overview) 和 [OpenAI 模型指南](https://developers.openai.com/api/docs/guides/latest-model)。混用引擎时，建议在各工作流配置节中覆盖模型。配置模板说明了每个选项的含义、有效值和省略时的行为；安装脚本保留已有配置，需要手动合并模板更新。
 
-球员属性仅在 `[player_attributes]` 中接受 `max_turns`，CLI 对应 `--max-turns N`。它必须为正整数，默认为 `80`。限制针对每次 Claude CLI 请求，包括联网工具交互，并分别用于各阶段、格式修复和重试。CLI 优先于 TOML。它不限制球队数量（该限制由 `max_teams` 控制），也不改变比赛计划的轮次上限。`max_teams`/`--max-teams N` 也是正整数，省略时不限制本次执行尝试的待处理球队数量。`delay`/`--delay` 为每次成功请求后的冷却秒数，必须是非负有限数，默认 `5.0`；`fast` 默认为 `false`，请求 CLI 的快速模式，不改变推理强度。比赛计划的 `engine` 可选 `claude-code`（默认）或 `codex`。
+球员属性仅在 `[player_attributes]` 中接受 `max_turns`，CLI 对应 `--max-turns N`。它必须为正整数，默认为 `80`。限制针对每次 Claude CLI 请求，包括联网工具交互，并分别用于各阶段、格式修复和重试。CLI 优先于 TOML。Codex 没有等价的原生轮次上限，因此不执行 `max_turns` 限制，而由 CLI 管理工具循环和上下文压缩；选择 Codex 时会输出该提示，并在每份请求审计中记录 `max_turns_enforced=false`。两个引擎仍使用有上限的传输重试和契约修复。该参数不限制球队数量（由 `max_teams` 控制），也不改变比赛计划的轮次上限。`max_teams`/`--max-teams N` 也是正整数，省略时不限制本次执行尝试的待处理球队数量。`delay`/`--delay` 为每次成功请求后的冷却秒数，必须是非负有限数，默认 `5.0`；`fast` 默认为 `false`，请求所选 CLI 的快速模式，不改变推理强度。
+
+属性建模启用 Claude 的 `WebSearch`/`WebFetch` 或 Codex 的内置实时联网检索；比赛计划保持关闭联网检索。Codex 沿用比赛计划的隔离、只读、无界面适配器，从最终消息文件读取产物。属性响应保留围栏和正文，由严格解析器拒绝不合规格式并进入原有定向修复流程。请在运行 Python 的 WSL/Linux 环境中安装并登录 Codex。
+
+```bash
+pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club' --engine codex --output ./outputs/attributes_codex
+```
 
 全局自动选项（Global Auto Options）可以配置在 `[defaults]`、`[match_plan]` 或 `[match_plans]` 中。这些设置直接应用于球队的全局阵型行，与模型输出无关。球员属性会忽略继承的全局自动选项，不接受在 `[player_attributes]` 或属性 CLI 中配置它们。
 
@@ -179,7 +185,9 @@ teams/<team>__<kind>_<id>/run_<id>/player_attributes.md
 
 该 **球员信息报告（Player Information Report）** 是必需产物，包含每位建模球员的身份、年龄、位置、风格、技能、能力和特征。报告在 CSV 提交前原子发布，写入失败会阻止完成。`batch_state.json` 保存报告绝对路径及 SHA-256；续跑时会校验报告，若缺失则从保存的、已校验的 `player_attributes.json` 重建，无需模型调用。报告被修改会阻止续跑。恢复批次时应保持输出目录原有的绝对路径。
 
-重复执行相同属性命令即可续跑；`--max-teams N` 限制本次调用尝试的球队数。属性检查点保留模型和推理强度。续跑使用旧默认值创建的批次时，须显式指定其记录的模型和推理强度；若要使用新默认值重新开始，请使用新输出目录。`max_turns` 可在两次执行间调整，并用于后续请求。
+重复执行相同属性命令即可续跑；`--max-teams N` 限制本次调用尝试的球队数。属性检查点保留引擎、模型和推理强度；切换引擎需要新输出目录。没有引擎字段的旧检查点视为 Claude Code 运行。续跑使用旧默认值创建的批次时，须显式指定其记录的模型和推理强度；若要使用新默认值重新开始，请使用新输出目录。`max_turns` 可在两次执行间调整，并用于后续 Claude 请求。
+
+每个阶段、修复、传输重试和中断都有请求审计，配对保存响应或错误文件。请求记录引擎、模型、推理强度、快速模式、工具范围，以及配置的 CLI 轮次限制是否实际执行。
 
 仅有完成登记文件不能证明报告存在；检查点是权威依据，并会修复中断的登记更新。续跑检查源 CSV 的绝对路径、CSV 哈希和提示词哈希，并拒绝未跟踪的修改。任一源路径变化，即使文件内容相同，也需要新输出目录；不包含源路径的旧检查点同样需要新目录。
 

@@ -102,7 +102,10 @@ output_dir = "./outputs/match_plans"
 # attributes_completed_teams = "./outputs/player_attributes/completed_teams_player_attributes.txt"
 
 [player_attributes]
-# Uses Claude Code only; engine, preset_mode and force are not accepted here.
+# CLI transport: claude-code | codex; default claude-code.
+# Both engines enable web research and use the same contracts and atomic injection.
+# preset_mode and force are not accepted here.
+engine = "claude-code"
 # Selection: single (one team) | multiple (2+ teams) | all (empty teams).
 # Omitted scope is inferred from teams; an empty/omitted list selects all.
 scope = "all"
@@ -113,6 +116,8 @@ check_only = false
 # Maximum Claude CLI turns per request, including web search/fetch and the final answer.
 # Positive integer >= 1; default 80; applies separately to both stages, repairs and retries.
 # This is a ceiling, not a target or a batch-wide budget. CLI override: --max-turns N.
+# Claude Code only: Codex has no native turn ceiling; this value is not enforced there.
+# Codex selection emits a notice and records max_turns_enforced=false in request audits.
 max_turns = 80
 # Audit/report/checkpoint directory; default ./outputs/player_attributes in cwd.
 # Use a separate directory for each team selection.
@@ -122,5 +127,6 @@ output_dir = "./outputs/player_attributes"
 # Maximum pending teams attempted per invocation; positive integer >= 1; default unlimited.
 # max_teams = 10
 # Shared model/effort/delay/fast and CSV path overrides use the rules in [defaults].
-# Attributes require only players_csv and teams_players_csv; default model claude-opus-5-5.
+# Attributes require only players_csv and teams_players_csv.
+# Omitted model uses the selected engine's default; see [defaults] above.
 # model = "claude-fable-5-1"

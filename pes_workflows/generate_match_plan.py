@@ -26,6 +26,12 @@ from pes_workflows.config import (
 from pes_workflows.csv_validation import validate_csv_file, validate_csv_target
 from pes_workflows.file_lock import acquire_lock
 from pes_workflows.llm.base import BaseLLMAdapter
+from pes_workflows.llm.engines import (
+    add_engine_arguments as add_match_plan_engine_arguments,
+)
+from pes_workflows.llm.engines import (
+    resolve_engine_arguments as resolve_match_plan_engine_arguments,
+)
 from pes_workflows.players.generator import (
     GeneratedPlayerRecords,
     InsufficientSquadError,
@@ -59,51 +65,6 @@ def match_plan_paths(
         raise ValueError(f"Unknown match-plan workflow: {workflow}")
     output_dir = (output_dir or Path.cwd() / "outputs" / workflow).resolve()
     return output_dir, output_dir / f"completed_teams_{workflow}_{preset_mode}.txt"
-
-
-def add_match_plan_engine_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument(
-        "--engine",
-        choices=("claude-code", "codex"),
-        default="claude-code",
-        help="Execution engine (default: claude-code)",
-    )
-    parser.add_argument(
-        "--model",
-        help=f"Model (Claude default: {Config.DEFAULT_MODEL}; Codex default: {CodexSubprocessAdapter.DEFAULT_MODEL}; "
-        "override with --model claude-fable-5-1 or gpt-6-sol)",
-    )
-    parser.add_argument(
-        "--effort",
-        choices=Config.EFFORT_CHOICES,
-        help=f"Reasoning effort (default: {Config.DEFAULT_EFFORT})",
-    )
-
-
-def resolve_match_plan_engine_arguments(args: argparse.Namespace) -> None:
-    if args.engine == "codex":
-        args.model = (
-            args.model
-            if args.model is not None
-            else CodexSubprocessAdapter.DEFAULT_MODEL
-        )
-        args.effort = (
-            args.effort
-            if args.effort is not None
-            else CodexSubprocessAdapter.DEFAULT_EFFORT
-        )
-    else:
-        args.model = args.model if args.model is not None else Config.DEFAULT_MODEL
-        args.effort = args.effort if args.effort is not None else Config.DEFAULT_EFFORT
-    if (
-        args.engine == "claude-code"
-        and args.fast
-        and not args.model.startswith("claude-opus")
-    ):
-        logger.warning(
-            "Fast mode only supports Opus 5.5/5/4.8; the current model %s does not support this setting.",
-            args.model,
-        )
 
 
 def create_match_plan_adapter(args: argparse.Namespace) -> BaseLLMAdapter:

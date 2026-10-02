@@ -28,6 +28,7 @@ from pes_workflows.csv_validation import (
     validate_csv_target,
 )
 from pes_workflows.file_lock import acquire_lock
+from pes_workflows.llm.engines import add_engine_arguments, resolve_engine_arguments
 from pes_workflows.player_attributes.generation import PlayerAttributeRunner
 from pes_workflows.player_attributes.injection import (
     _apply_profile,
@@ -214,17 +215,15 @@ def _main(resources: ExitStack) -> int:
         help="Exact team name or ID; repeat for multiple teams",
     )
     add_scope_arguments(parser)
-    parser.add_argument("--model", default=Config.DEFAULT_MODEL)
-    parser.add_argument(
-        "--effort", choices=Config.EFFORT_CHOICES, default=Config.DEFAULT_EFFORT
-    )
+    add_engine_arguments(parser)
     parser.add_argument("--delay", type=float, default=5.0)
     parser.add_argument(
         "--max-turns",
         type=int,
         default=Config.DEFAULT_PLAYER_ATTRIBUTE_MAX_TURNS,
         help="Positive Claude CLI turn limit per request, including tool interactions "
-        f"(default: {Config.DEFAULT_PLAYER_ATTRIBUTE_MAX_TURNS}); also applies to repairs and retries",
+        f"(default: {Config.DEFAULT_PLAYER_ATTRIBUTE_MAX_TURNS}); also applies to repairs and retries. "
+        "Claude Code only: Codex has no native turn ceiling",
     )
     parser.add_argument(
         "--max-teams",
@@ -248,6 +247,7 @@ def _main(resources: ExitStack) -> int:
         root_logger.addHandler(handler)
 
     add_handler(logging.StreamHandler(sys.stdout))
+    resolve_engine_arguments(args)
     players, memberships = args.players_csv, args.teams_players_csv
     try:
         validate_csv_target(players)
@@ -301,6 +301,10 @@ def _main(resources: ExitStack) -> int:
             raise RuntimeError(
                 "Team selection changed; use a separate --output directory"
             )
+        if state.get("engine", "claude-code") != args.engine:
+            raise RuntimeError(
+                "Engine changed since batch started; use a separate --output directory"
+            )
         if (state["model"], state["effort"]) != (args.model, args.effort):
             raise RuntimeError("Model or effort changed since batch started")
         if (
@@ -321,11 +325,14 @@ def _main(resources: ExitStack) -> int:
             "completed": {},
             "failures": {},
             "status": "running",
+            "engine": args.engine,
             "model": args.model,
             "effort": args.effort,
             "current_players_sha256": report["players_sha256"],
         }
         save(checkpoint, state)
+    # Checkpoints created before engine selection always used Claude Code.
+    state["engine"] = args.engine
     # Recover a completion registry write interrupted after the checkpoint commit.
     completed_teams = {tid: item["name"] for tid, item in state["completed"].items()}
     for entry in report["teams"] + report["failed"]:
@@ -336,6 +343,7 @@ def _main(resources: ExitStack) -> int:
     audit.mkdir(exist_ok=True)
     adapter = AuditedAdapter(
         audit,
+        engine=args.engine,
         model=args.model,
         effort=args.effort,
         delay=args.delay,
@@ -407,8 +415,9 @@ def _main(resources: ExitStack) -> int:
                 state["status"] = "incomplete"
                 save(checkpoint, state)
                 logging.warning(
-                    "Claude Code usage limit reached while processing %s; "
+                    "%s usage limit reached while processing %s; "
                     "progress saved. Exiting. Resume after the limit resets.",
+                    args.engine,
                     entry["name"],
                 )
                 return 1

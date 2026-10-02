@@ -213,7 +213,7 @@ class ClaudeCodeSubprocessAdapter(BaseLLMAdapter):
 
 
 class CodexSubprocessAdapter(ClaudeCodeSubprocessAdapter):
-    """Match-plan transport using the same policy, text and retry contracts."""
+    """Headless transport with optional hosted web research and final-file output."""
 
     provider_name: str = "codex-cli"
     DEFAULT_MODEL: str = "gpt-6-astra"
@@ -228,6 +228,7 @@ class CodexSubprocessAdapter(ClaudeCodeSubprocessAdapter):
         delay: float = 5.0,
         system_prompt_file: Path | None = None,
         fast_mode: bool = False,
+        web_search: bool = False,
     ) -> None:
         if effort not in self.EFFORT_CHOICES:
             raise ValueError(f"Codex effort must be one of {self.EFFORT_CHOICES}")
@@ -238,6 +239,7 @@ class CodexSubprocessAdapter(ClaudeCodeSubprocessAdapter):
             system_prompt_file=system_prompt_file,
             fast_mode=fast_mode,
         )
+        self.web_search: bool = web_search
 
     def _generate_once(
         self,
@@ -249,18 +251,19 @@ class CodexSubprocessAdapter(ClaudeCodeSubprocessAdapter):
     ) -> ModelResponse:
         user_prompt = self._build_user_prompt(messages)
         logger.info(
-            "[%s] Sending Turn %s request to Codex (Model=%s, Effort=%s, Fast=%s)...",
+            "[%s] Sending Turn %s request to Codex (Model=%s, Effort=%s, Fast=%s, Web=%s)...",
             team_name,
             turn,
             self.model,
             self.effort,
             "on" if self.fast_mode else "off",
+            "live" if self.web_search else "disabled",
         )
         try:
             # A fresh directory and final-message file prevent workspace context
             # and CLI progress output from entering the artifact contract.
             with (
-                tempfile.TemporaryDirectory(prefix="pes-match-plan-") as directory,
+                tempfile.TemporaryDirectory(prefix="pes-codex-") as directory,
                 self._system_policy_file(messages) as policy_path,
             ):
                 response_path = Path(directory) / "response.txt"
@@ -288,7 +291,7 @@ class CodexSubprocessAdapter(ClaudeCodeSubprocessAdapter):
                     "-c",
                     "project_doc_max_bytes=0",
                     "-c",
-                    'web_search="disabled"',
+                    'web_search="live"' if self.web_search else 'web_search="disabled"',
                     "-c",
                     "features.shell_tool=false",
                     "-c",
