@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a PES 2021 match plan for one team using Claude Code or Codex."""
+"""Generate a PES 2021 match plan for one team using Claude Code, Codex, or Antigravity."""
 
 from __future__ import annotations
 
@@ -15,7 +15,11 @@ from pes_workflows.checkpoint_io import (
     append_completed_team,
     read_completed_teams,
 )
-from pes_workflows.claude_cli import ClaudeCodeSubprocessAdapter, CodexSubprocessAdapter
+from pes_workflows.claude_cli import (
+    AgySubprocessAdapter,
+    ClaudeCodeSubprocessAdapter,
+    CodexSubprocessAdapter,
+)
 from pes_workflows.config import (
     GLOBAL_AUTO_CHOICES,
     Config,
@@ -73,6 +77,8 @@ def create_match_plan_adapter(args: argparse.Namespace) -> BaseLLMAdapter:
     )
     if args.engine == "codex":
         return CodexSubprocessAdapter(**kwargs)
+    if args.engine == "agy":
+        return AgySubprocessAdapter(**kwargs)
     return ClaudeCodeSubprocessAdapter(**kwargs)
 
 
@@ -102,7 +108,12 @@ def run_and_record(
     registry: Path,
 ) -> None:
     runner.run_team(records_doc)  # Raises on generation, validation or commit failure.
-    append_completed_team(registry, team_rec)
+    lock = getattr(runner, "csv_lock", None)
+    if lock is not None and hasattr(lock, "__enter__"):
+        with lock:
+            append_completed_team(registry, team_rec)
+    else:
+        append_completed_team(registry, team_rec)
 
 
 def configure_file_logging(output_dir: Path, resources: ExitStack) -> None:
@@ -127,6 +138,10 @@ def resolve_team(generator: PlayerRecordsGenerator, team_query: str) -> TeamReco
 
 
 def configure_console_logging(resources: ExitStack) -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure) and getattr(stream, "encoding", "").lower() != "utf-8":
+            reconfigure(encoding="utf-8", errors="replace")
     root = logging.getLogger()
     resources.callback(root.setLevel, root.level)
     root.setLevel(logging.INFO)

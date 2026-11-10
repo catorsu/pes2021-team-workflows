@@ -4,20 +4,20 @@
 # Shared keys below may be overridden in any workflow section; Global Auto Options
 # apply only to [match_plan] and [match_plans].
 # CSV paths must be absolute (or start with ~); names and directories are customizable.
-# Examples below access C:\PES2021 from WSL. Change /mnt/c to /mnt/d for D:, etc.
-# Native Windows paths are translated with wslpath inside WSL, respecting custom mounts.
+# Examples below use ~/PES2021 for cross-platform portability (or C:/PES2021 on Windows, /mnt/c/PES2021 in WSL).
 # For backslashes, use TOML literal strings: players_csv = 'C:\PES2021\Players.csv'.
+# In WSL, Windows paths are translated with wslpath, and /mnt/c/... paths also work on Windows.
 # Paths with spaces are supported; quote them when passing CLI arguments.
 # Other configured paths are relative to this file. No CSV path has a default.
 [defaults]
 # Player identities and abilities; required by every workflow, updated by attributes.
-players_csv = "/mnt/c/PES2021/Players.csv"
+players_csv = "~/PES2021/Players.csv"
 # Club/national memberships; required by every workflow.
-teams_players_csv = "/mnt/c/PES2021/Teams-Players.csv"
+teams_players_csv = "~/PES2021/Teams-Players.csv"
 # Squad player slots; required by match plans, unused by player attributes.
-rosters_csv = "/mnt/c/PES2021/Rosters.csv"
+rosters_csv = "~/PES2021/Rosters.csv"
 # Tactical editor data; required and updated by match plans, unused by attributes.
-formations_csv = "/mnt/c/PES2021/Formations.csv"
+formations_csv = "~/PES2021/Formations.csv"
 # Cooldown seconds after each successful model request; finite number >= 0; default 5.0.
 delay = 5.0
 # Request the chosen CLI's fast mode; true/false; default false. Does not change effort.
@@ -26,9 +26,10 @@ fast = false
 # Model ID: any nonempty ID supported by the selected CLI/account (not a fixed enum).
 # Claude default: claude-opus-5-5; alternative: claude-fable-5-1.
 # Codex default: gpt-6-astra; alternative: gpt-6-sol.
+# Antigravity (agy) single-model lock: Gemini 3.8 Flash (default) | Gemini 4 Argon.
 # Prefer model overrides inside workflow sections when mixing engines.
 # model = "claude-opus-5-5"
-# Reasoning effort: low | medium | high | xhigh | max; default high for both engines.
+# Reasoning effort: low | medium | high | xhigh | max; default high for Claude/Codex, medium for Antigravity.
 # A chosen model must support the requested level.
 effort = "high"
 
@@ -50,7 +51,7 @@ auto_change_att_def = 0
 # auto_substitutions = 2
 # auto_change_att_def = 0
 # auto_switch_preset_tactics = 0
-# CLI transport: claude-code | codex; default claude-code.
+# CLI transport: claude-code | codex | agy; default claude-code.
 engine = "claude-code"
 # Presets: single (Main, 3 requests) | multi (Main/Defensive/Custom, 5 requests).
 # Required in TOML or --preset-mode; the CLI has no implicit default.
@@ -78,7 +79,7 @@ output_dir = "./outputs/match_plan"
 # auto_substitutions = 2
 # auto_change_att_def = 0
 # auto_switch_preset_tactics = 0
-# CLI transport: claude-code | codex; default claude-code.
+# CLI transport: claude-code | codex | agy; default claude-code.
 engine = "claude-code"
 # Presets: single (3 requests) | multi (5 requests); required, no implicit CLI default.
 preset_mode = "single"
@@ -102,7 +103,7 @@ output_dir = "./outputs/match_plans"
 # attributes_completed_teams = "./outputs/player_attributes/completed_teams_player_attributes.txt"
 
 [player_attributes]
-# CLI transport: claude-code | codex; default claude-code.
+# CLI transport: claude-code | codex | agy; default claude-code.
 # Both engines enable web research and use the same contracts and atomic injection.
 # preset_mode and force are not accepted here.
 engine = "claude-code"

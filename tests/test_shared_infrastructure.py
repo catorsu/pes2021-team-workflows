@@ -385,6 +385,7 @@ class NativeCodexTests(unittest.TestCase):
         for cls in (
             claude_cli.ClaudeCodeSubprocessAdapter,
             claude_cli.CodexSubprocessAdapter,
+            claude_cli.AgySubprocessAdapter,
         ):
             adapter = cls(delay=0)
             for policies in ([], [""], ["one", "two"]):
@@ -407,13 +408,15 @@ class NativeCodexTests(unittest.TestCase):
                 ) -> subprocess.CompletedProcess[str]:
                     if cmd[0] == "claude":
                         path = Path(cmd[cmd.index("--system-prompt-file") + 1])
-                    else:
+                    elif cmd[:2] == ["codex", "exec"]:
                         settings = dict(
                             cmd[i + 1].split("=", 1)
                             for i, arg in enumerate(cmd)
                             if arg == "-c"
                         )
                         path = Path(json.loads(settings["model_instructions_file"]))
+                    else:
+                        path = Path(kwargs["cwd"]) / "GEMINI.md"
                     self.assertEqual(
                         path.read_bytes(), "Tactics\npolicy — preserve UTF-8\n".encode()
                     )
@@ -585,6 +588,7 @@ class NativeCodexTests(unittest.TestCase):
         for cls in (
             claude_cli.ClaudeCodeSubprocessAdapter,
             claude_cli.CodexSubprocessAdapter,
+            claude_cli.AgySubprocessAdapter,
         ):
             for failure in ("missing", "exit", "empty", "interrupt", "io"):
                 with self.subTest(adapter=cls.__name__, failure=failure):
@@ -637,6 +641,7 @@ class NativeCodexTests(unittest.TestCase):
         for cls in (
             claude_cli.ClaudeCodeSubprocessAdapter,
             claude_cli.CodexSubprocessAdapter,
+            claude_cli.AgySubprocessAdapter,
         ):
             with self.subTest(adapter=cls.__name__):
                 adapter = cls(delay=0)
@@ -656,6 +661,141 @@ class NativeCodexTests(unittest.TestCase):
                     with self.assertRaisesRegex(LLMResponseError, "bad credentials"):
                         adapter.generate([], 1, "A")
                     call.assert_called_once()
+
+
+class NativeAgyTests(unittest.TestCase):
+    def test_single_model_lock_and_individual_medium_effort_defaults(self) -> None:
+        default_adapter = claude_cli.AgySubprocessAdapter(delay=0)
+        self.assertEqual(default_adapter.model, "Gemini 3.8 Flash")
+        self.assertEqual(default_adapter.cli_model, "gemini-3.8-flash")
+        self.assertEqual(default_adapter.effort, "medium")
+
+        for raw_model, expected_name, expected_slug in (
+            ("Gemini 3.8 Flash", "Gemini 3.8 Flash", "gemini-3.8-flash"),
+            ("gemini-3.8-flash", "Gemini 3.8 Flash", "gemini-3.8-flash"),
+            ("Gemini 4 Argon", "Gemini 4 Argon", "gemini-4-argon"),
+            ("gemini-4-argon", "Gemini 4 Argon", "gemini-4-argon"),
+        ):
+            with self.subTest(model=raw_model):
+                adapter = claude_cli.AgySubprocessAdapter(model=raw_model, delay=0)
+                self.assertEqual(adapter.model, expected_name)
+                self.assertEqual(adapter.cli_model, expected_slug)
+                self.assertEqual(adapter.effort, "medium")
+
+        for invalid_model in (
+            "gemini-3.8-pro",
+            "Gemini 3.8 Pro",
+            "claude-opus-5-5",
+            "gpt-6-astra",
+            "",
+            "   ",
+        ):
+            with self.subTest(invalid_model=invalid_model):
+                with self.assertRaisesRegex(
+                    ValueError, "Antigravity single-model lock"
+                ):
+                    claude_cli.AgySubprocessAdapter(model=invalid_model, delay=0)
+
+        for invalid_effort in ("invalid", "", "ultra"):
+            with self.subTest(invalid_effort=invalid_effort):
+                with self.assertRaisesRegex(ValueError, "Antigravity effort"):
+                    claude_cli.AgySubprocessAdapter(
+                        model="Gemini 4 Argon", effort=invalid_effort, delay=0
+                    )
+
+    def test_agy_isolated_agent_policy_and_cli_invocation(self) -> None:
+        for model_name, expected_slug in (
+            ("Gemini 3.8 Flash", "gemini-3.8-flash"),
+            ("Gemini 4 Argon", "gemini-4-argon"),
+        ):
+            with self.subTest(model=model_name):
+                adapter = claude_cli.AgySubprocessAdapter(model=model_name, delay=0)
+                directories: list[Path] = []
+
+                def run(
+                    cmd: list[str], **kwargs: Any
+                ) -> subprocess.CompletedProcess[str]:
+                    cwd = Path(kwargs["cwd"])
+                    directories.append(cwd)
+                    self.assertEqual(cmd[cmd.index("--agent") + 1], "pes")
+                    self.assertEqual(cmd[cmd.index("--model") + 1], expected_slug)
+                    self.assertEqual(cmd[cmd.index("--effort") + 1], "medium")
+                    self.assertIn("--disable-slash-commands", cmd)
+                    self.assertIn("--sandbox", cmd)
+                    self.assertNotIn("--dangerously-skip-permissions", cmd)
+                    settings = json.loads(cmd[cmd.index("--settings") + 1])
+                    self.assertEqual(
+                        settings,
+                        {
+                            "allowNonWorkspaceAccess": False,
+                            "artifactReviewPolicy": "always-proceed",
+                            "model": f"{expected_slug}-medium",
+                        },
+                    )
+                    self.assertEqual(
+                        (cwd / "GEMINI.md").read_text(encoding="utf-8"),
+                        "rendered policy",
+                    )
+                    agent_text = (cwd / ".agents" / "agents" / "pes.md").read_text(
+                        encoding="utf-8"
+                    )
+                    self.assertIn("excludeDefaultComponents: true", agent_text)
+                    self.assertIn("inheritCustomizations: false", agent_text)
+                    self.assertIn("tools: []", agent_text)
+                    self.assertIn("rendered policy", agent_text)
+                    return subprocess.CompletedProcess(
+                        cmd, 0, '```json\n{"ok":true}\n```', ""
+                    )
+
+                with mock.patch.object(claude_cli, "run_claude", side_effect=run):
+                    result = adapter._generate_once(
+                        messages=[
+                            {"role": "system", "content": "rendered policy"},
+                            {"role": "user", "content": "task"},
+                        ],
+                        turn=1,
+                        team_name="China*",
+                        user_id=None,
+                    )
+                self.assertEqual(result, ('{"ok":true}', ""))
+                self.assertEqual(len(directories), 1)
+                self.assertFalse(directories[0].exists())
+
+    def test_audited_adapter_agy_defaults_and_web_search_tools(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audit = Path(directory)
+            for model_name, expected_slug in (
+                ("Gemini 3.8 Flash", "gemini-3.8-flash"),
+                ("Gemini 4 Argon", "gemini-4-argon"),
+            ):
+                with self.subTest(model=model_name):
+                    adapter = AuditedAdapter(
+                        audit,
+                        engine="agy",
+                        model=model_name,
+                        delay=0,
+                        max_turns=25,
+                    )
+                    self.assertEqual(adapter.model, model_name)
+                    self.assertEqual(
+                        adapter.transport_metadata,
+                        {
+                            "engine": "agy",
+                            "provider": "agy-cli",
+                            "model": model_name,
+                            "effort": "medium",
+                            "fast_mode": False,
+                            "tools": ["search_web", "read_url_content"],
+                            "max_turns": 25,
+                            "max_turns_enforced": False,
+                        },
+                    )
+                    with self.assertRaisesRegex(
+                        ValueError, "Antigravity single-model lock"
+                    ):
+                        AuditedAdapter(
+                            audit, engine="agy", model="gpt-6-astra", delay=0
+                        )
 
 
 class StorageTests(unittest.TestCase):

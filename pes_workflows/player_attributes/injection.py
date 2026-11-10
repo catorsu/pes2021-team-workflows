@@ -41,7 +41,7 @@ class PlayerInjectionResult:
 
 @contextmanager
 def _exclusive_commit_lock(players_csv: Path) -> Iterator[None]:
-    """Serialize compare-and-replace commits across Linux processes."""
+    """Serialize compare-and-replace commits across cooperating processes."""
     lock_path = players_csv.with_name(f".{players_csv.name}.attributes.lock")
     with ExitStack() as resources:
         acquire_lock(resources, lock_path, blocking=True)

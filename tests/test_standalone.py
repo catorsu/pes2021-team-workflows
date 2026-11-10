@@ -80,7 +80,14 @@ class StandaloneTests(unittest.TestCase):
                 self.assertEqual(
                     command,
                     [
-                        str(environment / "bin/python"),
+                        str(
+                            environment
+                            / (
+                                "Scripts/python.exe"
+                                if os.name == "nt"
+                                else "bin/python"
+                            )
+                        ),
                         "-I",
                         "-m",
                         "pip",
@@ -93,7 +100,10 @@ class StandaloneTests(unittest.TestCase):
                 self.assertEqual(kwargs["cwd"], project)
             result = real_run(
                 [
-                    str(environment / "bin/python"),
+                    str(
+                        environment
+                        / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+                    ),
                     "-I",
                     "-c",
                     "import sys; print(sys.prefix); assert sys.prefix != sys.base_prefix",

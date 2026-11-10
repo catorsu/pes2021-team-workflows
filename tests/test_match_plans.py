@@ -325,10 +325,10 @@ class MatchPlanScriptsTests(unittest.TestCase):
         config = self.root / "settings.toml"
         config.write_text(
             "[defaults]\ndelay=0\n"
-            f'players_csv="{self.root / "Players.csv"}"\n'
-            f'teams_players_csv="{self.root / "Teams-Players.csv"}"\n'
-            f'rosters_csv="{self.root / "Rosters.csv"}"\n'
-            f'formations_csv="{self.root / "Formations.csv"}"\n'
+            f'players_csv="{(self.root / "Players.csv").as_posix()}"\n'
+            f'teams_players_csv="{(self.root / "Teams-Players.csv").as_posix()}"\n'
+            f'rosters_csv="{(self.root / "Rosters.csv").as_posix()}"\n'
+            f'formations_csv="{(self.root / "Formations.csv").as_posix()}"\n'
             '[match_plan]\npreset_mode="single"\nteams=["77"]\n'
             'output_dir="single-reports"\n'
             '[match_plans]\npreset_mode="multi"\nteams=["77"]\n'
@@ -413,6 +413,37 @@ class MatchPlanScriptsTests(unittest.TestCase):
                     "custom",
                     "high",
                 ),
+                (
+                    ["--engine", "agy"],
+                    claude_cli.AgySubprocessAdapter,
+                    "Gemini 3.8 Flash",
+                    "medium",
+                ),
+                (
+                    ["--engine", "agy", "--model", "Gemini 3.8 Flash"],
+                    claude_cli.AgySubprocessAdapter,
+                    "Gemini 3.8 Flash",
+                    "medium",
+                ),
+                (
+                    ["--engine", "agy", "--model", "Gemini 4 Argon"],
+                    claude_cli.AgySubprocessAdapter,
+                    "Gemini 4 Argon",
+                    "medium",
+                ),
+                (
+                    [
+                        "--engine",
+                        "agy",
+                        "--model",
+                        "gemini-4-argon",
+                        "--effort",
+                        "high",
+                    ],
+                    claude_cli.AgySubprocessAdapter,
+                    "Gemini 4 Argon",
+                    "high",
+                ),
             ):
                 with (
                     self.subTest(module=module.__name__, args=engine_args),
@@ -495,6 +526,9 @@ class MatchPlanScriptsTests(unittest.TestCase):
             for args in (
                 ["--engine", "unknown"],
                 ["--engine", "codex", "--effort", "invalid"],
+                ["--engine", "agy", "--model", "claude-opus-5-5"],
+                ["--engine", "agy", "--model", "gemini-3.8-pro"],
+                ["--engine", "agy", "--effort", "invalid"],
                 ["--team-type", "invalid"],
             ):
                 with (
@@ -681,7 +715,11 @@ class MatchPlanScriptsTests(unittest.TestCase):
         artifacts = {"single": [], "multi": []}
         for mode, cls in itertools.product(
             ("single", "multi"),
-            (claude_cli.ClaudeCodeSubprocessAdapter, claude_cli.CodexSubprocessAdapter),
+            (
+                claude_cli.ClaudeCodeSubprocessAdapter,
+                claude_cli.CodexSubprocessAdapter,
+                claude_cli.AgySubprocessAdapter,
+            ),
         ):
             with self.subTest(mode=mode, engine=cls.provider_name):
                 client = SingleModeFakeClient() if mode == "single" else FakeClient()
@@ -696,7 +734,7 @@ class MatchPlanScriptsTests(unittest.TestCase):
                 def popen(cmd: list[str], **kwargs: Any) -> mock.Mock:
                     if cmd[0] == "claude":
                         policy_path = Path(cmd[cmd.index("--system-prompt-file") + 1])
-                    else:
+                    elif cmd[:2] == ["codex", "exec"]:
                         settings = dict(
                             cmd[i + 1].split("=", 1)
                             for i, arg in enumerate(cmd)
@@ -705,6 +743,8 @@ class MatchPlanScriptsTests(unittest.TestCase):
                         policy_path = Path(
                             json.loads(settings["model_instructions_file"])
                         )
+                    else:
+                        policy_path = Path(kwargs["cwd"]) / "GEMINI.md"
                     policy_paths.append(policy_path)
                     self.assertEqual(policy_path.read_bytes(), policy.encode("utf-8"))
                     process = mock.Mock(returncode=0)
@@ -1552,10 +1592,10 @@ class ConfigurationTests(unittest.TestCase):
         self.config = self.root / "pes-workflows.toml"
         self.config.write_text(
             '[defaults]\nmodel="shared"\nfast=true\ndelay=3\n'
-            f'players_csv="{self.root / "people" / "attributes.csv"}"\n'
-            f'teams_players_csv="{self.root / "clubs" / "members.csv"}"\n'
-            f'rosters_csv="{self.root / "squads" / "selected.csv"}"\n'
-            f'formations_csv="{self.root / "tactics" / "plans.csv"}"\n'
+            f'players_csv="{(self.root / "people" / "attributes.csv").as_posix()}"\n'
+            f'teams_players_csv="{(self.root / "clubs" / "members.csv").as_posix()}"\n'
+            f'rosters_csv="{(self.root / "squads" / "selected.csv").as_posix()}"\n'
+            f'formations_csv="{(self.root / "tactics" / "plans.csv").as_posix()}"\n'
             '[match_plan]\npreset_mode="single"\nscope="single"\nteams=["77"]\n'
             '[match_plans]\npreset_mode="multi"\nmodel="batch"\n'
             'scope="multiple"\nteams=["77", "Other"]\nforce=true\n'
@@ -1766,6 +1806,31 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(args.model, claude_cli.CodexSubprocessAdapter.DEFAULT_MODEL)
         self.assertEqual(args.effort, claude_cli.CodexSubprocessAdapter.DEFAULT_EFFORT)
         self.assertFalse(args.fast)
+        for model_arg, expected_model in (
+            ([], "Gemini 3.8 Flash"),
+            (["--model", "Gemini 3.8 Flash"], "Gemini 3.8 Flash"),
+            (["--model", "Gemini 4 Argon"], "Gemini 4 Argon"),
+        ):
+            with self.subTest(agy_model=model_arg):
+                agy_args = self.parse(
+                    "--no-config",
+                    "--players-csv",
+                    str(self.root / "p.csv"),
+                    "--teams-players-csv",
+                    str(self.root / "m.csv"),
+                    "--rosters-csv",
+                    str(self.root / "r.csv"),
+                    "--formations-csv",
+                    str(self.root / "f.csv"),
+                    "--preset-mode",
+                    "single",
+                    "--engine",
+                    "agy",
+                    *model_arg,
+                )
+                single.resolve_match_plan_engine_arguments(agy_args)
+                self.assertEqual(agy_args.model, expected_model)
+                self.assertEqual(agy_args.effort, "medium")
 
     def test_each_csv_path_has_independent_workflow_and_cli_overrides(self) -> None:
         original = self.config.read_text()
@@ -1777,7 +1842,7 @@ class ConfigurationTests(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 configured = self.root / "workflow" / f"{key}.txt"
-                self.config.write_text(original + f'{key}="{configured}"\n')
+                self.config.write_text(original + f'{key}="{configured.as_posix()}"\n')
                 before = self.parse("--config", str(self.config))
                 self.assertEqual(getattr(before, key), configured)
                 override = self.root / "cli" / f"{key}.txt"

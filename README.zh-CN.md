@@ -2,29 +2,39 @@
 
 [English](README.md)
 
-适用于 WSL 和 Linux 的独立 Python 3.11+ 工作流。可以将整个项目目录复制到任意位置运行；项目自带编译器、校验器、名单读取器、CSV 写入器、CLI 适配器、提示词和离线测试。运行依赖 pandas，以及已完成身份验证的 `claude` 或 `codex` 命令；两个引擎均支持比赛计划和球员属性。无需图形界面或 API SDK。
+适用于原生 Windows、WSL 和 Linux 的独立 Python 3.11+ 工作流。可以将整个项目目录复制到任意位置运行；项目自带编译器、校验器、名单读取器、CSV 写入器、CLI 适配器、提示词和离线测试。运行依赖 pandas，以及已完成身份验证的 `claude`、`codex` 或 `agy` 命令；三个引擎均支持比赛计划和球员属性。无需图形界面或 API SDK。
 
 ## 安装与运行
 
 克隆后，在项目根目录运行：
 
-```bash
+```powershell
+# Windows (PowerShell)
+python setup_env.py
+
+# WSL / Linux
 python3 setup_env.py
 ```
 
-安装脚本会创建不继承系统包的 `.venv`，以可编辑模式安装本项目及 Python 依赖，并在 `pes-workflows.toml` 不存在时从 `pes-workflows.example.toml` 复制配置。重复运行会保留已有设置。需要 Python 3.11+、`venv`/`ensurepip` 支持和可访问的 Python 包索引。脚本不会安装或登录 Claude Code（`claude`）或 Codex（`codex`）；请另行安装并登录所选 CLI。离线预检不需要这两个 CLI。使用 `python3 setup_env.py --dev` 可同时安装开发工具。
+安装脚本会创建不继承系统包的 `.venv`，以可编辑模式安装本项目及 Python 依赖，并在 `pes-workflows.toml` 不存在时从 `pes-workflows.example.toml` 复制配置。重复运行会保留已有设置。需要 Python 3.11+、`venv`/`ensurepip` 支持和可访问的 Python 包索引。脚本不会安装或登录 Claude Code（`claude`）、Codex（`codex`）或 Antigravity（`agy`）；请另行安装并登录所选 CLI。离线预检不需要这些 CLI。使用 `python setup_env.py --dev` 可同时安装开发工具。
 
-编辑 `pes-workflows.toml`，配置 CSV 的绝对路径和目标球队，然后运行 `.venv/bin/pes-match-plans --check-only`，无需激活环境。若使用下面的简短命令，先激活虚拟环境：
+编辑 `pes-workflows.toml`，配置 CSV 的绝对路径和目标球队，然后运行 `.venv\Scripts\pes-match-plans.exe --check-only`（Windows）或 `.venv/bin/pes-match-plans --check-only`（WSL / Linux），无需激活环境。若使用下面的简短命令，先激活虚拟环境：
+
+```powershell
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+```
 
 ```bash
+# WSL / Linux
 source .venv/bin/activate
 
 # 四个输入路径独立配置，文件名和目录均可自定义。
 csv_paths=(
-    --players-csv /path/to/players/Players.csv
-    --teams-players-csv /path/to/memberships/Teams-Players.csv
-    --rosters-csv /path/to/squads/Rosters.csv
-    --formations-csv /path/to/tactics/Formations.csv
+    --players-csv C:/PES2021/Players.csv
+    --teams-players-csv C:/PES2021/Teams-Players.csv
+    --rosters-csv C:/PES2021/Rosters.csv
+    --formations-csv C:/PES2021/Formations.csv
 )
 
 # 单支球队：生成、校验并原子注入单预设计划。
@@ -37,17 +47,18 @@ pes-match-plan "${csv_paths[@]}" --team 77 --preset-mode multi
 pes-match-plans "${csv_paths[@]}" --preset-mode single --check-only
 pes-match-plans "${csv_paths[@]}" --preset-mode single --team 'My Club' --team 77
 
-# Codex 使用相同的比赛计划流程和数据契约。
+# Codex 或 Antigravity (agy) 使用相同的比赛计划流程和数据契约。
 pes-match-plan "${csv_paths[@]}" --team 77 --preset-mode single --engine codex
+pes-match-plan "${csv_paths[@]}" --team 77 --preset-mode single --engine agy
 
 # 按 Players.csv 中的现有年龄建模球员属性，然后原子写入。
-pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club' --check-only
-pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club'
+pes-player-attributes --players-csv C:/PES2021/Players.csv --teams-players-csv C:/PES2021/Teams-Players.csv --team 'My Club' --check-only
+pes-player-attributes --players-csv C:/PES2021/Players.csv --teams-players-csv C:/PES2021/Teams-Players.csv --team 'My Club'
 ```
 
-也可以不安装项目，在项目目录中使用 `python3 -m pes_workflows.generate_match_plan`、`python3 -m pes_workflows.batch_generate_match_plans` 或 `python3 -m pes_workflows.batch_design_player_attributes`，参数相同。安装后的命令可以在任意工作目录运行。
+也可以不安装项目，在项目目录中使用 `python -m pes_workflows.generate_match_plan`、`python -m pes_workflows.batch_generate_match_plans` 或 `python -m pes_workflows.batch_design_player_attributes`，参数相同。安装后的命令可以在任意工作目录运行。
 
-在 WSL 中，可通过挂载路径直接访问 Windows 上的 CSV，例如 `C:\PES2021\Players.csv` 对应 `/mnt/c/PES2021/Players.csv`。配置模板采用这种布局，请按实际导出位置修改盘符和目录。WSL 也接受原生 Windows 路径（`C:/PES2021/Players.csv` 或反斜杠形式），并通过 `wslpath` 按系统挂载配置转换。参见 [Microsoft 的 WSL 路径说明](https://learn.microsoft.com/en-us/windows/dev-environment/wsl-interop)。
+在原生 Windows 上，请直接使用 Windows 绝对路径（如 `"C:/PES2021/Players.csv"` 或 `'C:\PES2021\Players.csv'`）；遗留的 WSL 挂载路径（如 `/mnt/c/PES2021/Players.csv`）也会在 Windows 上自动转换为对应的盘符路径。在 WSL 中，可通过挂载路径访问 Windows 上的 CSV，或传入 Windows 路径由 `wslpath` 自动转换。参见 [Microsoft 的 WSL 路径说明](https://learn.microsoft.com/en-us/windows/dev-environment/wsl-interop)。
 
 含反斜杠的 TOML 路径应使用字面量字符串，例如 `players_csv = 'C:\PES2021\Players.csv'`；CLI 路径含空格时应加引号。Linux 绝对路径和 `~` 路径同样可用。`C:Players.csv` 这类盘符相对路径会被拒绝。非 WSL 的 Linux 环境请使用 Linux 路径。对应磁盘或共享目录必须已挂载，文件必须可读写；预检会在调用模型之前检查解析后的文件，并验证每个 CSV 写入目标的父目录能否创建临时文件。
 
@@ -64,7 +75,7 @@ pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /pat
 | `[match_plans]` | 单队比赛计划的全部设置，以及 `check_only` |
 | `[player_attributes]` | 共享设置，以及 `output_dir`、`engine`、`check_only`、`max_teams`、`max_turns`、`scope`、`teams` |
 
-配置键使用下划线，对应 CLI 参数使用连字符。球员属性的 `output_dir` 对应 `--output`，也接受 `--output-dir`。所有工作流都接受 `engine="claude-code"`（默认）或 `engine="codex"`，CLI 可用 `--engine` 覆盖；`preset_mode` 和 `force` 只适用于比赛计划。属性工作流的离线校验使用 `check_only`。
+配置键使用下划线，对应 CLI 参数使用连字符。球员属性的 `output_dir` 对应 `--output`，也接受 `--output-dir`。所有工作流都接受 `engine="claude-code"`（默认）、`engine="codex"` 或 `engine="agy"`，CLI 可用 `--engine` 覆盖；`preset_mode` 和 `force` 只适用于比赛计划。属性工作流的离线校验使用 `check_only`。
 
 布尔选项支持显式反向覆盖：在支持相应选项的命令中，`--no-fast`、`--no-force` 和 `--no-check-only` 会覆盖配置中的 `true`。省略 `model` 和 `effort` 时使用引擎默认值；只覆盖 `--engine` 不会清除已配置的模型和推理强度。
 
@@ -72,7 +83,7 @@ pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /pat
 
 球员属性仅在 `[player_attributes]` 中接受 `max_turns`，CLI 对应 `--max-turns N`。它必须为正整数，默认为 `80`。限制针对每次 Claude CLI 请求，包括联网工具交互，并分别用于各阶段、格式修复和重试。CLI 优先于 TOML。Codex 没有等价的原生轮次上限，因此不执行 `max_turns` 限制，而由 CLI 管理工具循环和上下文压缩；选择 Codex 时会输出该提示，并在每份请求审计中记录 `max_turns_enforced=false`。两个引擎仍使用有上限的传输重试和契约修复。该参数不限制球队数量（由 `max_teams` 控制），也不改变比赛计划的轮次上限。`max_teams`/`--max-teams N` 也是正整数，省略时不限制本次执行尝试的待处理球队数量。`delay`/`--delay` 为每次成功请求后的冷却秒数，必须是非负有限数，默认 `5.0`；`fast` 默认为 `false`，请求所选 CLI 的快速模式，不改变推理强度。
 
-属性建模启用 Claude 的 `WebSearch`/`WebFetch` 或 Codex 的内置实时联网检索；比赛计划保持关闭联网检索。Codex 沿用比赛计划的隔离、只读、无界面适配器，从最终消息文件读取产物。属性响应保留围栏和正文，由严格解析器拒绝不合规格式并进入原有定向修复流程。请在运行 Python 的 WSL/Linux 环境中安装并登录 Codex。
+属性建模启用 Claude 的 `WebSearch`/`WebFetch` 或 Codex 的内置实时联网检索；比赛计划保持关闭联网检索。Codex 沿用比赛计划的隔离、只读、无界面适配器，从最终消息文件读取产物。属性响应保留围栏和正文，由严格解析器拒绝不合规格式并进入原有定向修复流程。请在运行 Python 的 Windows 或 WSL/Linux 环境中安装并登录 Claude Code（`irm https://claude.ai/install.ps1 | iex` 或 `winget install Anthropic.ClaudeCode`）、Codex（`irm https://chatgpt.com/codex/install.ps1 | iex` 或 `npm install -g @openai/codex`）或 Antigravity（`agy`）。
 
 ```bash
 pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /path/to/members.csv --team 'My Club' --engine codex --output ./outputs/attributes_codex
@@ -127,7 +138,7 @@ pes-player-attributes --config ./settings.toml --team 77 --team 'My Club'
 
 ## 输入与选择规则
 
-输入为编辑器导出的分号分隔 CSV。比赛计划需要球员、球队名单、阵型和球队归属关系四类文件；球员属性需要球员与归属关系文件。`Players.csv`、`Rosters.csv`、`Formations.csv` 和 `Teams-Players.csv` 只是常见文件名，各文件可使用任意名称并存放在不同目录。Linux 路径区分大小写。
+输入为编辑器导出的分号分隔 CSV。比赛计划需要球员、球队名单、阵型和球队归属关系四类文件；球员属性需要球员与归属关系文件。`Players.csv`、`Rosters.csv`、`Formations.csv` 和 `Teams-Players.csv` 只是常见文件名，各文件可使用任意名称并存放在不同目录。路径在 Linux 上区分大小写，在 Windows 上不区分大小写。
 
 调用模型前会逐一检查必需文件是否存在、是否为普通文件、是否可读写；离线 `--check-only` 也执行这些检查。原子写入目标的父目录必须允许创建临时文件，不会推断共享目录。归属关系表头为 `Id;Name;Id Club;Club;Id National;National`。ID 必须为正数，并在同类实体中全局唯一。自定义球队使用俱乐部归属列编码；生成比赛计划时还须在 `Rosters.csv` 和 `Formations.csv` 中提供相应球队 ID。一名球员可同时归属俱乐部与国家队。
 
@@ -193,7 +204,7 @@ teams/<team>__<kind>_<id>/run_<id>/player_attributes.md
 
 属性批次锁绑定球员文件所在目录中的配置文件名，提交锁保护同一文件。CSV 已提交但检查点尚未更新时若发生中断，需要检查该次运行的清单与备份；续跑会拒绝在已更改的 CSV 上静默重放。
 
-POSIX 锁会串行化共享数据库的写入。属性验证会对照备份重放已提交产物，检查全部 CSV 行，包括未建模的单元格。比赛计划每次运行提供一份汇总 Markdown 报告，不生成逐轮 Markdown 页面、独立阵型显示文件或运行脚本副本。
+系统级文件锁（Windows 使用 `msvcrt`，POSIX 使用 `fcntl`）会串行化共享数据库的写入。属性验证会对照备份重放已提交产物，检查全部 CSV 行，包括未建模的单元格。比赛计划每次运行提供一份汇总 Markdown 报告，不生成逐轮 Markdown 页面、独立阵型显示文件或运行脚本副本。
 
 ## 提示词与开发
 
@@ -221,7 +232,17 @@ pes_workflows/prompts/
 
 激活虚拟环境后，在项目根目录运行：
 
+```powershell
+# Windows (.venv 已激活)
+python run_tests.py
+python -m pip install ".[dev]"
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy pes_workflows
+```
+
 ```bash
+# WSL / Linux (.venv 已激活)
 python3 run_tests.py
 python3 -m pip install '.[dev]'
 python3 -m ruff check .

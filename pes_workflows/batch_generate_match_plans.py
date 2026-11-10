@@ -9,6 +9,7 @@ import logging
 import shutil
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
@@ -66,6 +67,12 @@ def _main(resources: ExitStack) -> int:
         action=argparse.BooleanOptionalAction,
         default=False,
         help="Run offline eligibility preflight only, then report and exit (no tokens used)",
+    )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="Number of teams to process concurrently (default: 1)",
     )
     parser.add_argument(
         "--team",
@@ -196,35 +203,72 @@ def _main(resources: ExitStack) -> int:
 
     backup_formations_csv(formations_csv, output_dir)
 
-    # Phase 2: Sequential match-plan generation.
+    # Phase 2: Match-plan generation (sequential or concurrent).
     succeeded = 0
     failed = 0
     start_all = time.time()
+    concurrency = getattr(args, "concurrency", 1) or 1
 
-    for idx, (team_rec, records_doc) in enumerate(queue, start=1):
-        logger.info("\n" + "=" * 60)
+    if concurrency <= 1:
+        for idx, (team_rec, records_doc) in enumerate(queue, start=1):
+            logger.info("\n" + "=" * 60)
+            logger.info(
+                f"⚽ [{idx}/{len(queue)}] Generating a match plan for: {team_rec.team_name} (ID: {team_rec.team_id})"
+            )
+            logger.info("=" * 60)
+
+            t_start = time.time()
+            try:
+                run_and_record(runner, records_doc, team_rec, registry)
+                succeeded += 1
+                logger.info(
+                    f"✅ [{idx}/{len(queue)}] {team_rec.team_name} completed in {int(time.time() - t_start)}s"
+                )
+            except Exception as e:
+                failed += 1
+                logger.error(
+                    f"❌ [{idx}/{len(queue)}] {team_rec.team_name} failed: {e}",
+                    exc_info=True,
+                )
+                logger.info(
+                    "⏳ Failure isolated; continuing to the next team in 5 seconds..."
+                )
+                time.sleep(5)
+    else:
         logger.info(
-            f"⚽ [{idx}/{len(queue)}] Generating a match plan for: {team_rec.team_name} (ID: {team_rec.team_id})"
+            f"🚀 Running batch match-plan generation with concurrency={concurrency}..."
         )
-        logger.info("=" * 60)
 
-        t_start = time.time()
-        try:
-            run_and_record(runner, records_doc, team_rec, registry)
-            succeeded += 1
+        def _process_one(idx: int, team_rec: object, records_doc: object) -> bool:
+            logger.info("\n" + "=" * 60)
             logger.info(
-                f"✅ [{idx}/{len(queue)}] {team_rec.team_name} completed in {int(time.time() - t_start)}s"
+                f"⚽ [{idx}/{len(queue)}] Generating a match plan for: {team_rec.team_name} (ID: {team_rec.team_id})"  # type: ignore[attr-defined]
             )
-        except Exception as e:
-            failed += 1
-            logger.error(
-                f"❌ [{idx}/{len(queue)}] {team_rec.team_name} failed: {e}",
-                exc_info=True,
-            )
-            logger.info(
-                "⏳ Failure isolated; continuing to the next team in 5 seconds..."
-            )
-            time.sleep(5)
+            logger.info("=" * 60)
+            t_start = time.time()
+            try:
+                run_and_record(runner, records_doc, team_rec, registry)  # type: ignore[arg-type]
+                logger.info(
+                    f"✅ [{idx}/{len(queue)}] {team_rec.team_name} completed in {int(time.time() - t_start)}s"  # type: ignore[attr-defined]
+                )
+                return True
+            except Exception as e:
+                logger.error(
+                    f"❌ [{idx}/{len(queue)}] {team_rec.team_name} failed: {e}",  # type: ignore[attr-defined]
+                    exc_info=True,
+                )
+                return False
+
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futures = [
+                pool.submit(_process_one, idx, team_rec, records_doc)
+                for idx, (team_rec, records_doc) in enumerate(queue, start=1)
+            ]
+            for fut in as_completed(futures):
+                if fut.result():
+                    succeeded += 1
+                else:
+                    failed += 1
 
     elapsed_min = round((time.time() - start_all) / 60, 1)
     logger.info("\n" + "=" * 60)

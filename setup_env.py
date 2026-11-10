@@ -79,11 +79,18 @@ def main() -> int:
     print(f"Ready: {environment}")
     print(
         "Edit pes-workflows.toml to set the CSV paths and choose teams. "
-        "In WSL, Windows files use paths such as /mnt/c/PES2021/Players.csv. "
+        "On Windows, use paths such as 'C:\\PES2021\\Players.csv' or \"C:/PES2021/Players.csv\". "
         "Workflow output directories are enabled in the generated template."
     )
-    print(f"Run: {environment / 'bin/pes-match-plans'} --check-only")
-    print("Install and authenticate claude / codex separately for model generation.")
+    cli_script = (
+        environment / "Scripts/pes-match-plans.exe"
+        if os.name == "nt"
+        else environment / "bin/pes-match-plans"
+    )
+    print(f"Run: {cli_script} --check-only")
+    print(
+        "Install and authenticate claude / codex / agy separately for model generation."
+    )
     return 0
 
 

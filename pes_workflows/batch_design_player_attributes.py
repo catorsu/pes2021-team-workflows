@@ -192,6 +192,10 @@ def verify(
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure) and getattr(stream, "encoding", "").lower() != "utf-8":
+            reconfigure(encoding="utf-8", errors="replace")
     with ExitStack() as resources:
         return _main(resources)
 
@@ -289,7 +293,7 @@ def _main(resources: ExitStack) -> int:
     checkpoint = out / "batch_state.json"
     completion_record = out / COMPLETION_REGISTRY_NAME
     if checkpoint.exists():
-        state = json.loads(checkpoint.read_text())
+        state = json.loads(checkpoint.read_text(encoding="utf-8"))
         if any(
             state.get(key) != report.get(key)
             for key in ("players_csv", "teams_players_csv")

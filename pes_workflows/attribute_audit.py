@@ -8,7 +8,11 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from pes_workflows.checkpoint_io import save
-from pes_workflows.claude_cli import ClaudeCodeSubprocessAdapter, CodexSubprocessAdapter
+from pes_workflows.claude_cli import (
+    AgySubprocessAdapter,
+    ClaudeCodeSubprocessAdapter,
+    CodexSubprocessAdapter,
+)
 from pes_workflows.config import CHOICES, Config
 from pes_workflows.events import BuildEvent
 from pes_workflows.llm.base import BaseLLMAdapter, Message, ModelResponse
@@ -30,12 +34,16 @@ class _AttributeCodexAdapter(_VerbatimResponse, CodexSubprocessAdapter):
     pass
 
 
+class _AttributeAgyAdapter(_VerbatimResponse, AgySubprocessAdapter):
+    pass
+
+
 class AuditedAdapter(BaseLLMAdapter):
     """Audit each transport attempt under the shared retry and artifact contracts.
 
     Stages and repairs use the same engine and tool scope. The outer retry loop
     invokes exactly one transport attempt at a time so no retry bypasses auditing.
-    Claude enforces max_turns; Codex currently has no equivalent CLI ceiling.
+    Claude enforces max_turns; Codex and Antigravity have no equivalent CLI ceiling.
     """
 
     def __init__(
@@ -44,7 +52,7 @@ class AuditedAdapter(BaseLLMAdapter):
         *,
         engine: str = "claude-code",
         model: str | None = None,
-        effort: str = Config.DEFAULT_EFFORT,
+        effort: str | None = None,
         delay: float = 5.0,
         fast_mode: bool = False,
         max_turns: int = Config.DEFAULT_PLAYER_ATTRIBUTE_MAX_TURNS,
@@ -59,19 +67,36 @@ class AuditedAdapter(BaseLLMAdapter):
         if engine == "codex":
             if allowed_tools not in ((), ("WebSearch", "WebFetch")):
                 raise ValueError("Codex hosted web research combines search and fetch")
+            resolved_effort = (
+                CodexSubprocessAdapter.DEFAULT_EFFORT if effort is None else effort
+            )
             self._transport = _AttributeCodexAdapter(
                 model=model
                 if model is not None
                 else CodexSubprocessAdapter.DEFAULT_MODEL,
+                effort=resolved_effort,
+                delay=delay,
+                fast_mode=fast_mode,
+                web_search=bool(allowed_tools),
+            )
+        elif engine == "agy":
+            if allowed_tools not in ((), ("WebSearch", "WebFetch")):
+                raise ValueError("Antigravity web research combines search and fetch")
+            self._transport = _AttributeAgyAdapter(
+                model=model
+                if model is not None
+                else AgySubprocessAdapter.DEFAULT_MODEL,
                 effort=effort,
                 delay=delay,
                 fast_mode=fast_mode,
                 web_search=bool(allowed_tools),
             )
+            resolved_effort = self._transport.effort
         else:
+            resolved_effort = Config.DEFAULT_EFFORT if effort is None else effort
             self._transport = _AttributeClaudeAdapter(
                 model=model if model is not None else Config.DEFAULT_MODEL,
-                effort=effort,
+                effort=resolved_effort,
                 delay=delay,
                 fast_mode=fast_mode,
                 max_turns=max_turns,
@@ -85,11 +110,15 @@ class AuditedAdapter(BaseLLMAdapter):
             "engine": engine,
             "provider": self.provider_name,
             "model": self.model,
-            "effort": effort,
+            "effort": resolved_effort,
             "fast_mode": fast_mode,
-            "tools": (["web_search"] if allowed_tools else [])
-            if engine == "codex"
-            else list(allowed_tools),
+            "tools": (
+                (["search_web", "read_url_content"] if allowed_tools else [])
+                if engine == "agy"
+                else (["web_search"] if allowed_tools else [])
+                if engine == "codex"
+                else list(allowed_tools)
+            ),
             "max_turns": max_turns,
             "max_turns_enforced": engine == "claude-code",
         }
@@ -97,6 +126,12 @@ class AuditedAdapter(BaseLLMAdapter):
             self.logger.warning(
                 "Codex has no native turn ceiling; max_turns=%s applies only to "
                 "Claude Code. Codex manages its tool loop and context compaction.",
+                max_turns,
+            )
+        elif engine == "agy":
+            self.logger.warning(
+                "Antigravity CLI has no native turn ceiling; max_turns=%s applies only to "
+                "Claude Code. Antigravity manages its tool loop and context compaction.",
                 max_turns,
             )
 

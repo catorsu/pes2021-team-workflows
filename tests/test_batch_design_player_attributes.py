@@ -185,6 +185,44 @@ class BatchTests(unittest.TestCase):
                 "explicit",
                 "medium",
             ),
+            ("", ["--engine", "agy"], "agy", "Gemini 3.8 Flash", "medium"),
+            (
+                "",
+                ["--engine", "agy", "--model", "Gemini 3.8 Flash"],
+                "agy",
+                "Gemini 3.8 Flash",
+                "medium",
+            ),
+            (
+                "",
+                ["--engine", "agy", "--model", "Gemini 4 Argon"],
+                "agy",
+                "Gemini 4 Argon",
+                "medium",
+            ),
+            (
+                '[player_attributes]\nengine="agy"\nmodel="Gemini 4 Argon"\n',
+                [],
+                "agy",
+                "Gemini 4 Argon",
+                "medium",
+            ),
+            (
+                '[defaults]\nmodel="Gemini 3.8 Flash"\neffort="low"\n'
+                '[player_attributes]\nengine="agy"\nmodel="Gemini 4 Argon"\neffort="high"\n',
+                [],
+                "agy",
+                "Gemini 4 Argon",
+                "high",
+            ),
+            (
+                '[defaults]\nmodel="Gemini 3.8 Flash"\neffort="low"\n'
+                '[player_attributes]\nengine="agy"\nmodel="Gemini 3.8 Flash"\neffort="high"\n',
+                ["--model", "Gemini 4 Argon", "--effort", "medium"],
+                "agy",
+                "Gemini 4 Argon",
+                "medium",
+            ),
         ]
         for index, (content, flags, engine, model, effort) in enumerate(cases):
             with self.subTest(index=index):
@@ -220,6 +258,12 @@ class BatchTests(unittest.TestCase):
             ('[player_attributes]\nengine="invalid"\n', []),
             ('[defaults]\nengine="codex"\n', []),
             ("", ["--engine", "invalid"]),
+            ('[player_attributes]\nengine="agy"\nmodel="gpt-6-astra"\n', []),
+            (
+                '[defaults]\nmodel="claude-opus-5-5"\n[player_attributes]\nengine="agy"\n',
+                [],
+            ),
+            ("", ["--engine", "agy", "--model", "gemini-3.8-pro"]),
         ):
             config.write_text(content)
             with (
@@ -626,8 +670,8 @@ class ScopedPreflightTests(unittest.TestCase):
         output = self.data / "configured-output"
         config.write_text(
             "[defaults]\ndelay=0\nfast=true\n"
-            f'players_csv="{self.players}"\n'
-            f'teams_players_csv="{self.memberships}"\n'
+            f'players_csv="{self.players.as_posix()}"\n'
+            f'teams_players_csv="{self.memberships.as_posix()}"\n'
             '[player_attributes]\noutput_dir="configured-output"\n'
             'scope="multiple"\nteams=["Other", "71", "Selected"]\n'
             'check_only=true\nmax_teams=2\nmodel="configured"\neffort="high"\n'

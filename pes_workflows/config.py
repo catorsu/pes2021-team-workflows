@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 from typing import Any, TypedDict
 
-from pes_workflows.paths import normalize_path
+from pes_workflows.paths import is_absolute_path, normalize_path
 
 PROMPTS_DIR: Path = Path(__file__).resolve().parent / "prompts"
 
@@ -16,6 +16,17 @@ class Config:
     DEFAULT_MODEL: str = "claude-opus-5-5"
     DEFAULT_EFFORT: str = "high"
     EFFORT_CHOICES: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+    AGY_MODELS: tuple[str, ...] = ("Gemini 3.8 Flash", "Gemini 4 Argon")
+    AGY_MODEL_SLUGS: dict[str, str] = {
+        "Gemini 3.8 Flash": "gemini-3.8-flash",
+        "Gemini 4 Argon": "gemini-4-argon",
+    }
+    AGY_MODEL_DEFAULT_EFFORTS: dict[str, str] = {
+        "Gemini 3.8 Flash": "medium",
+        "Gemini 4 Argon": "medium",
+    }
+    AGY_DEFAULT_MODEL: str = "Gemini 3.8 Flash"
+    AGY_DEFAULT_EFFORT: str = "medium"
     DEFAULT_PLAYER_ATTRIBUTE_MAX_TURNS: int = 80
     DEFAULT_PRESET_MODE: str = "multi"
     SUPPORTED_PRESET_MODES: tuple[str, ...] = ("multi", "single")
@@ -25,6 +36,23 @@ class Config:
     MAX_FORMAT_REPAIRS: int = 1
     DEFAULT_AUTO_SUBSTITUTIONS: int = 2
     DEFAULT_AUTO_CHANGE_ATT_DEF: int = 0
+
+
+def validate_agy_model(model: str) -> str:
+    """Enforce the Antigravity CLI single-model lock to Gemini 3.8 Flash or Gemini 4 Argon."""
+    if not isinstance(model, str):
+        raise ValueError(
+            f"Antigravity single-model lock allows only {Config.AGY_MODELS}; got {model!r}"
+        )
+    candidate = model.strip()
+    if candidate in Config.AGY_MODELS:
+        return candidate
+    slug_to_model = {slug: name for name, slug in Config.AGY_MODEL_SLUGS.items()}
+    if candidate in slug_to_model:
+        return slug_to_model[candidate]
+    raise ValueError(
+        f"Antigravity single-model lock allows only {Config.AGY_MODELS}; got {model!r}"
+    )
 
 
 GLOBAL_AUTO_CHOICES = {
@@ -109,7 +137,7 @@ MATCH_OPTIONS = (
 )
 WORKFLOW_OPTIONS = {
     "match_plan": MATCH_OPTIONS,
-    "match_plans": MATCH_OPTIONS | {"check_only"},
+    "match_plans": MATCH_OPTIONS | {"check_only", "concurrency"},
     "player_attributes": SHARED_OPTIONS
     | {
         "output_dir",
@@ -125,7 +153,7 @@ PATH_OPTIONS = CSV_PATH_OPTIONS | {"output_dir", "attributes_completed_teams"}
 BOOL_OPTIONS = {"fast", "force", "check_only"}
 CHOICES = {
     "effort": Config.EFFORT_CHOICES,
-    "engine": ("claude-code", "codex"),
+    "engine": ("claude-code", "codex", "agy"),
     "preset_mode": Config.SUPPORTED_PRESET_MODES,
     "scope": ("single", "multiple", "all"),
 }
@@ -154,7 +182,7 @@ def load_configuration(path: Path) -> dict[str, dict[str, Any]]:
                 valid = (
                     type(value) in (int, float) and math.isfinite(value) and value >= 0
                 )
-            elif key in {"max_teams", "max_turns"}:
+            elif key in {"max_teams", "max_turns", "concurrency"}:
                 valid = type(value) is int and value > 0
             elif key == "teams":
                 valid = isinstance(value, list) and all(
@@ -168,9 +196,11 @@ def load_configuration(path: Path) -> dict[str, dict[str, Any]]:
                 raise ValueError(f"{label} must be one of {CHOICES[key]}")
             if key in PATH_OPTIONS:
                 expanded = normalize_path(value)
-                if key in CSV_PATH_OPTIONS and not expanded.is_absolute():
+                if key in CSV_PATH_OPTIONS and not is_absolute_path(expanded):
                     raise ValueError(f"{label} must be an absolute file path")
                 values[key] = (path.parent / expanded).resolve()
+        if values.get("engine") == "agy" and "model" in values:
+            values["model"] = validate_agy_model(values["model"])
     return document
 
 
@@ -255,6 +285,14 @@ def parse_workflow_args(
             action.required = False
     parser.set_defaults(**settings)
     args = parser.parse_args(argv)
+    if (
+        getattr(args, "engine", None) == "agy"
+        and getattr(args, "model", None) is not None
+    ):
+        try:
+            args.model = validate_agy_model(args.model)
+        except ValueError as exc:
+            parser.error(str(exc))
     if workflow in {"match_plan", "match_plans"}:
         try:
             resolved = resolve_global_auto_options(
@@ -272,7 +310,7 @@ def parse_workflow_args(
                 value = normalize_path(value)
             except ValueError as exc:
                 parser.error(str(exc))
-            if option in CSV_PATH_OPTIONS and not value.is_absolute():
+            if option in CSV_PATH_OPTIONS and not is_absolute_path(value):
                 parser.error(
                     f"--{option.replace('_', '-')} must be an absolute file path"
                 )
@@ -285,6 +323,8 @@ def parse_workflow_args(
         parser.error("--max-teams must be positive")
     if getattr(args, "max_turns", None) is not None and args.max_turns < 1:
         parser.error("--max-turns must be positive")
+    if getattr(args, "concurrency", None) is not None and args.concurrency < 1:
+        parser.error("--concurrency must be positive")
     if cli_selection:
         teams = args.team or []
         if isinstance(teams, str):

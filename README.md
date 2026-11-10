@@ -2,10 +2,10 @@
 
 [简体中文](README.zh-CN.md)
 
-Standalone Python 3.11+ workflows for WSL and Linux. Copy this directory anywhere;
+Standalone Python 3.11+ workflows for Windows, WSL, and Linux. Copy this directory anywhere;
 it contains its own compiler, validators, roster readers, CSV writers, CLI
 adapters, prompts, and offline tests. Runtime dependencies are pandas and an
-authenticated `claude` or `codex` executable. Both engines support match plans and
+authenticated `claude`, `codex`, or `agy` executable. All three engines support match plans and
 player attributes. No GUI or API SDK is
 required.
 
@@ -13,8 +13,8 @@ required.
 
 After cloning, run from the repository directory:
 
-```bash
-python3 setup_env.py
+```powershell
+python setup_env.py
 ```
 
 This creates `.venv` with system packages excluded, installs this project in
@@ -22,13 +22,13 @@ editable mode and its Python dependencies, and copies
 `pes-workflows.example.toml` to `pes-workflows.toml` if it does not exist.
 Re-running setup preserves your settings. Python 3.11+ with `venv`/`ensurepip`
 support and access to a Python package index are prerequisites. Setup never
-installs or authenticates Claude Code (`claude`) or Codex (`codex`); install and
-authenticate your chosen CLI separately. Offline preflight needs neither CLI.
-Use `python3 setup_env.py --dev` to include the development tools.
+installs or authenticates Claude Code (`claude`), Codex (`codex`), or Antigravity (`agy`); install and
+authenticate your chosen CLI separately. Offline preflight needs no model CLI.
+Use `python setup_env.py --dev` to include the development tools.
 
 Edit `pes-workflows.toml` to set the absolute CSV paths and your team selection, then run
-`.venv/bin/pes-match-plans --check-only`. No activation is required. For the
-short command names below, activate the environment first:
+`.\.venv\Scripts\pes-match-plans.exe --check-only` on Windows (or `.venv/bin/pes-match-plans --check-only` on Linux/WSL). No activation is required. For the
+short command names below, activate the environment first (`.venv\Scripts\Activate.ps1` in PowerShell, or `source .venv/bin/activate` in Bash):
 
 ```bash
 source .venv/bin/activate
@@ -63,13 +63,15 @@ pes-player-attributes --players-csv /path/to/people.csv --teams-players-csv /pat
 ```
 
 Without installation, run from this directory using
-`python3 -m pes_workflows.generate_match_plan`,
-`python3 -m pes_workflows.batch_generate_match_plans`, or
-`python3 -m pes_workflows.batch_design_player_attributes` with the same arguments.
-Installed commands work from any working directory. In WSL, Windows-hosted CSVs
+`python -m pes_workflows.generate_match_plan`,
+`python -m pes_workflows.batch_generate_match_plans`, or
+`python -m pes_workflows.batch_design_player_attributes` with the same arguments.
+Installed commands work from any working directory. On Windows, use native paths such as
+`C:/PES2021/Players.csv` or literal backslash strings (`'C:\PES2021\Players.csv'`).
+In WSL, Windows-hosted CSVs
 can be accessed directly using mounted paths such as `/mnt/c/PES2021/Players.csv`
-for `C:\PES2021\Players.csv`. The template uses this layout; change the drive and
-directories to match your exports. Native Windows paths (`C:/PES2021/Players.csv`
+for `C:\PES2021\Players.csv`, and `/mnt/<drive>/...` paths are also automatically
+translated to `<DRIVE>:/...` on native Windows. Native Windows paths (`C:/PES2021/Players.csv`
 or backslash paths) are also accepted in WSL and translated by `wslpath`, which
 respects the configured drive mounts. See [Microsoft's WSL path guidance](https://learn.microsoft.com/en-us/windows/dev-environment/wsl-interop).
 Use TOML literal strings for backslashes, for example
@@ -104,7 +106,7 @@ paths and `preset_mode`; attributes require only the players and membership path
 
 Keys use underscores; equivalent CLI flags use hyphens. Attribute `output_dir`
 maps to `--output` (also accepted as `--output-dir`). Every workflow accepts
-`engine="claude-code"` (default) or `engine="codex"`, overridden by `--engine`.
+`engine="claude-code"` (default), `engine="codex"`, or `engine="agy"`, overridden by `--engine`.
 `preset_mode` and `force` apply to match plans. For offline attribute validation,
 use `check_only`.
 Booleans accept explicit CLI reversal: `--no-fast`,
@@ -112,8 +114,11 @@ Booleans accept explicit CLI reversal: `--no-fast`,
 the corresponding flag is supported. Omit `model` and `effort` to use engine
 defaults; configured values remain in effect when overriding only `--engine`.
 
-Both engines default to `effort="high"`; supported workflow values are `low`,
-`medium`, `high`, `xhigh`, and `max` (subject to the chosen model's support).
+Claude and Codex default to `effort="high"`; Antigravity (`agy`) enforces a
+single-model lock to exclusively `Gemini 3.8 Flash` (default) or `Gemini 4 Argon`,
+and both Antigravity models individually default to `effort="medium"`.
+Supported workflow values are `low`, `medium`, `high`, `xhigh`, and `max`
+(subject to the chosen model's support).
 Claude defaults to `claude-opus-5-5`, with `claude-fable-5-1` as an alternative.
 Codex defaults to `gpt-6-astra`, with `gpt-6-sol` as an alternative. Model IDs are
 not restricted to these examples. Current IDs are documented in the
@@ -138,7 +143,8 @@ research; match plans keep web research disabled. Codex uses the same isolated,
 read-only headless adapter as match plans and reads only its final-message file
 for the artifact response. Attribute responses retain fences and prose so the
 strict parser can reject them and request the existing scoped correction.
-Install and authenticate Codex inside the WSL/Linux environment running Python.
+Install and authenticate Claude Code (`irm https://claude.ai/install.ps1 | iex` or `winget install Anthropic.ClaudeCode`),
+Codex (`irm https://chatgpt.com/codex/install.ps1 | iex` or `npm install -g @openai/codex`), or Antigravity (`agy`) in the Windows or WSL/Linux environment running Python.
 
 Global Auto Options can be set in `[defaults]`, `[match_plan]`, or `[match_plans]`.
 They apply to the team's global formation row and are independent of model output.
@@ -213,7 +219,7 @@ players, squad rosters, formations, and team-player memberships.
 Attributes require players and memberships. `Players.csv`, `Rosters.csv`,
 `Formations.csv`, and `Teams-Players.csv` are conventional names only: each file
 may have any name and live in a different directory. Paths are case-sensitive
-on Linux. Every required file is checked individually for existence, regular-file
+on Linux and case-insensitive on Windows. Every required file is checked individually for existence, regular-file
 type, readability, and write access before model calls, including offline
 `--check-only`. Atomic write targets also require their
 own parent directory to allow temporary files. No shared directory is inferred.
@@ -357,7 +363,7 @@ its own directory; commit locks protect that same file. An interruption between 
 commit and its checkpoint requires inspection of that run’s manifest and backup;
 resume refuses to silently replay over the changed CSV.
 
-POSIX locks serialize writers sharing a database. Attribute verification replays
+OS file locks (`msvcrt` on Windows, `fcntl` on POSIX) serialize writers sharing a database. Attribute verification replays
 committed artifacts against the backup and checks all CSV rows, including
 unmodeled cells. Match plans provide one consolidated Markdown report per run;
 per-turn Markdown pages, separate formation display files, and copied runtime
@@ -393,7 +399,17 @@ computed automatically at runtime. Edit prompt sources directly; no checksum
 inventory needs updating. The offline suite checks that required prompt assets
 are readable and nonempty and exercises prompt loading and rendering.
 
+```powershell
+# Windows (.venv activated)
+python run_tests.py
+python -m pip install ".[dev]"
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy pes_workflows
+```
+
 ```bash
+# WSL / Linux (.venv activated)
 python3 run_tests.py
 python3 -m pip install '.[dev]'
 python3 -m ruff check .

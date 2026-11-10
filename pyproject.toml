@@ -10,7 +10,10 @@ description = "Configurable headless PES 2021 match plans and player attribute m
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["pandas>=2.0"]
-classifiers = ["Operating System :: POSIX :: Linux"]
+classifiers = [
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
 
 [project.urls]
 Homepage = "https://github.com/catorsu/pes2021-team-workflows"
